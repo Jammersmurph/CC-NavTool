@@ -3,6 +3,10 @@ return {
   updateInterval = 0.10,
   telemetryPeripheral = nil,
   monitorPeripheral = nil,
+  gps = {
+    enabled = true,
+    timeout = 0.5,
+  },
   safety = {
     maximumOutput = 5,
     maximumRemotePulse = 2.0,

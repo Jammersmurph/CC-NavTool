@@ -8,6 +8,7 @@ local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
+local lastGpsFix
 
 local function loadConfig()
   local ok, config = pcall(dofile, CONFIG_PATH)
@@ -303,6 +304,8 @@ local function distance(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local gpsFix
+
 local function promptTarget()
   term.clear()
   term.setCursorPos(1, 1)
@@ -329,7 +332,11 @@ local function promptWaypoint(config)
   local name = read()
   if name == "" then printError("Name is required."); sleep(1.5); return end
   local telemetry = telemetryName(config)
-  local position = extractVector(callFirst(telemetry, { "getLogicalPose", "getPose" }))
+  local position = telemetry and extractVector(callFirst(telemetry, { "getLogicalPose", "getPose" }))
+  if not position then
+    local fix = gpsFix(config)
+    position = fix and fix.position
+  end
   if position then
     print("Use current position " .. string.format("%.1f %.1f %.1f", position.x, position.y, position.z) .. "? [Y/n]")
     local answer = read():lower()
@@ -419,6 +426,28 @@ local function openModem()
   end
 end
 
+gpsFix = function(config)
+  local gpsConfig = type(config.gps) == "table" and config.gps or {}
+  if gpsConfig.enabled == false or type(gps) ~= "table" or type(gps.locate) ~= "function" then return nil, "gps disabled or unavailable" end
+  if not openModem() then return nil, "no modem" end
+  local timeout = tonumber(gpsConfig.timeout) or 0.5
+  local ok, x, y, z = pcall(gps.locate, timeout, false)
+  if not ok or not x or not y or not z then return nil, "no gps fix" end
+  local now = os.clock()
+  local position = { x = x, y = y, z = z }
+  local velocity
+  if lastGpsFix and lastGpsFix.time and now > lastGpsFix.time then
+    local dt = now - lastGpsFix.time
+    velocity = {
+      x = (position.x - lastGpsFix.position.x) / dt,
+      y = (position.y - lastGpsFix.position.y) / dt,
+      z = (position.z - lastGpsFix.position.z) / dt,
+    }
+  end
+  lastGpsFix = { position = position, time = now }
+  return { position = position, velocity = velocity, rawPosition = position }
+end
+
 local function snapshot(config)
   local name = telemetryName(config)
   local target = loadTarget()
@@ -426,7 +455,28 @@ local function snapshot(config)
   local schedules, scheduleNames = scheduleList()
   local activeSchedule = loadActiveSchedule()
   local mode = loadMode().mode or "standby"
-  if not name then return { version = VERSION, telemetry = false, target = target, waypoints = waypoints, waypointNames = names, schedules = schedules, scheduleNames = scheduleNames, activeSchedule = activeSchedule, mode = mode } end
+  if not name then
+    local fix, gpsErr = gpsFix(config)
+    if fix then
+      return {
+        version = VERSION,
+        telemetry = true,
+        source = "gps",
+        rawPosition = fix.rawPosition,
+        position = fix.position,
+        velocity = fix.velocity,
+        target = target,
+        distanceToTarget = distance(fix.position, target),
+        waypoints = waypoints,
+        waypointNames = names,
+        schedules = schedules,
+        scheduleNames = scheduleNames,
+        activeSchedule = activeSchedule,
+        mode = mode,
+      }
+    end
+    return { version = VERSION, telemetry = false, source = "none", gpsError = gpsErr, target = target, waypoints = waypoints, waypointNames = names, schedules = schedules, scheduleNames = scheduleNames, activeSchedule = activeSchedule, mode = mode }
+  end
   local pose = callFirst(name, { "getLogicalPose", "getPose" })
   local position = extractVector(pose)
   local rawPosition
@@ -618,12 +668,14 @@ local function status(config)
   local state = snapshot(config)
   print("CC-NavTool " .. VERSION)
   print("Telemetry: " .. (state.telemetry and "online" or "not found"))
+  print("Source: " .. tostring(state.source or state.peripheral or "unknown"))
   if state.peripheral then print("Peripheral: " .. state.peripheral) end
   if state.peripheral then print("Methods: " .. table.concat(methods(state.peripheral), ", ")) end
   print("Position: " .. shortText(state.position))
   print("Velocity: " .. shortText(state.velocity))
   if state.telemetry and not state.position then print("Raw position: " .. shortText(state.rawPosition or state.pose)) end
   if state.telemetry and not state.velocity then print("Raw velocity: " .. shortText(state.rawVelocity)) end
+  if state.gpsError then print("GPS: " .. tostring(state.gpsError)) end
   print("Target: " .. textutils.serialize(state.target))
   print("Mode: " .. tostring(state.mode or "standby"))
   print("Waypoints: " .. tostring(#(state.waypointNames or {})))
@@ -636,6 +688,10 @@ local function diagnose(config)
   print("CC-NavTool telemetry diagnostics")
   print("Configured telemetryPeripheral: " .. tostring(config.telemetryPeripheral))
   print("Detected telemetryPeripheral: " .. tostring(telemetryName(config)))
+  local fix, gpsErr = gpsFix(config)
+  print("GPS position: " .. shortText(fix and fix.position))
+  print("GPS velocity: " .. shortText(fix and fix.velocity))
+  if gpsErr then print("GPS error: " .. tostring(gpsErr)) end
   print("")
   local candidates = {
     "getLogicalPose", "getPose", "getPosition", "getShipPosition", "getWorldPosition", "getBlockPosition",
