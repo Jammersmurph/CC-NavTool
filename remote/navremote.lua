@@ -144,9 +144,13 @@ local function menu()
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
-    if event == "mouse_click" then x, y = side, x
-    elseif event == "monitor_touch" and side ~= monitorName then x, y = nil, nil
-    elseif event ~= "monitor_touch" then x, y = nil, nil end
+    if event == "mouse_click" then
+      -- mouse_click returns button, x, y. Keep the terminal coordinates.
+    elseif event == "monitor_touch" and side ~= monitorName then
+      x, y = nil, nil
+    elseif event ~= "monitor_touch" then
+      x, y = nil, nil
+    end
     local action = x and hitButton(x, y)
     if action == "status" then local _, height = target.getSize(); showStatus(target); writeAt(target, 2, height, "Touch anywhere to return."); os.pullEvent(); drawMenu(target)
     elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); drawMenu(target)

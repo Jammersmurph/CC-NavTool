@@ -217,9 +217,13 @@ local function interface(config)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
-    if event == "mouse_click" then x, y = side, x
-    elseif event == "monitor_touch" and side ~= monitorName then x, y = nil, nil
-    elseif event ~= "monitor_touch" then x, y = nil, nil end
+    if event == "mouse_click" then
+      -- mouse_click returns button, x, y. Keep the terminal coordinates.
+    elseif event == "monitor_touch" and side ~= monitorName then
+      x, y = nil, nil
+    elseif event ~= "monitor_touch" then
+      x, y = nil, nil
+    end
     local action = x and hitButton(x, y)
     if action == "refresh" then drawInterface(config, target)
     elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target)
