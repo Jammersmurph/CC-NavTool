@@ -15,6 +15,63 @@ The goal of the project is to provide a more flexible, programmable alternative 
 
 ---
 
+## Current v0.3 Development Build
+
+The active development build is split into two installable packages:
+
+* `aircraft/` — onboard computer program, launched as `navtool`
+* `remote/` — pocket/remote computer program, launched as `navremote`
+
+Install the aircraft package on the craft computer:
+
+```lua
+wget run https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/install.lua
+```
+
+Install the remote package on a pocket or control computer:
+
+```lua
+wget run https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/install.lua
+```
+
+Launch the GUIs:
+
+```text
+navtool
+navremote
+```
+
+The GUIs work on an Advanced Computer terminal with mouse clicks and on attached monitors with touch events.
+
+Update commands:
+
+```text
+navtool update
+navremote update
+```
+
+Full uninstall commands, including config and saved data:
+
+```text
+navtool uninstall
+navremote uninstall
+```
+
+Current implemented foundations:
+
+* Telemetry discovery and status display
+* Target coordinate storage
+* Saved waypoints
+* Coordinate schedules with multiple stops
+* Remote schedule creation, run, delete, and stop
+* `navtool automate` schedule runner
+* Rednet remote control protocol
+* Emergency output clearing
+
+Important limitation: `navtool automate` currently advances schedule targets only. It does not yet steer the craft or apply redstone thrust automatically.
+
+---
+
 ## Project Goals
 
 CC-NavTool is intended to become a complete avionics and navigation platform for Create Aeronautics craft.
@@ -762,4 +819,3 @@ Created by **Jammersmurph**.
 Built for the CC:Tweaked, Sable, and Create Aeronautics community.
 
 CC-NavTool is an independent community project and is not officially affiliated with the developers of CC:Tweaked, Sable, Create, or Create Aeronautics.
-
