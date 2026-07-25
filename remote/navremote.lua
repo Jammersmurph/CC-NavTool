@@ -136,6 +136,7 @@ local function showStatus(target)
   writeAt(target, 2, 10, "Velocity: " .. compact(data.velocity))
   writeAt(target, 2, 11, "Mode: " .. tostring(data.mode or "standby"))
   writeAt(target, 2, 12, "Waypoints: " .. tostring(#(data.waypointNames or {})))
+  writeAt(target, 2, 13, "Schedules: " .. tostring(#(data.scheduleNames or {})))
 end
 
 local function setTarget()
@@ -205,6 +206,75 @@ local function waypointNamePrompt(command)
   sleep(1)
 end
 
+local function createSchedule()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Create Coordinate Schedule")
+  write("Schedule name: ")
+  local name = read()
+  write("Number of stops: ")
+  local count = tonumber(read())
+  if name == "" or not count or count < 1 then printError("Name and stop count are required."); sleep(1.5); return end
+  local stops = {}
+  for index = 1, math.floor(count) do
+    print("Stop " .. index)
+    write("  Label: ")
+    local label = read()
+    write("  X: ")
+    local x = tonumber(read())
+    write("  Y: ")
+    local y = tonumber(read())
+    write("  Z: ")
+    local z = tonumber(read())
+    if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
+    stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+  end
+  local response, requestErr = request("save-schedule", { schedule = { name = name, stops = stops } })
+  if response then print("Schedule saved on aircraft.") else printError(requestErr) end
+  sleep(1)
+end
+
+local function scheduleNamePrompt(command)
+  term.clear()
+  term.setCursorPos(1, 1)
+  write("Schedule name: ")
+  local name = read()
+  if name == "" then return end
+  local response, requestErr = request(command, { name = name })
+  if response then print("Done.") else printError(requestErr) end
+  sleep(1)
+end
+
+local function scheduleManager(target)
+  local response, requestErr = request("schedule-list")
+  local width, height = target.getSize()
+  color(target, colors.black, colors.white)
+  target.clear()
+  drawHeader(target, "Coordinate Schedules")
+  if not response then
+    line(target, 2, 3, "Error: ", requestErr)
+  else
+    local names = response.names or {}
+    if #names == 0 then line(target, 2, 3, "Schedules: ", "none") end
+    local y = 3
+    if response.active then
+      line(target, 2, y, "Active: ", tostring(response.active.name) .. " stop " .. tostring(response.active.index))
+      y = y + 1
+    end
+    for _, name in ipairs(names) do
+      if y >= height - 5 then break end
+      local schedule = response.schedules[name]
+      line(target, 2, y, name .. ": ", tostring(#(schedule.stops or {})) .. " stops")
+      y = y + 1
+    end
+  end
+  drawButton(target, "sch-add", "ADD", 2, height - 4, math.floor(width / 4), height - 3, colors.green)
+  drawButton(target, "sch-run", "RUN", math.floor(width / 4) + 2, height - 4, math.floor(width / 2), height - 3, colors.cyan)
+  drawButton(target, "sch-delete", "DELETE", math.floor(width / 2) + 2, height - 4, math.floor(width * 3 / 4), height - 3, colors.red)
+  drawButton(target, "sch-stop", "STOP", math.floor(width * 3 / 4) + 2, height - 4, width - 2, height - 3, colors.orange)
+  drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
+end
+
 local function setMode(mode)
   local response, requestErr = request("set-mode", { mode = mode })
   if not response then return requestErr end
@@ -251,6 +321,7 @@ local function drawMenu(target, message)
   line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", vectorText(data.pose))
   line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(data.velocity))
   line(target, math.max(28, math.floor(width / 2)), 6, "Waypoints: ", #(data.waypointNames or {}))
+  line(target, math.max(28, math.floor(width / 2)), 7, "Schedules: ", #(data.scheduleNames or {}))
   if requestErr then writeAt(target, 2, 7, "Error: " .. requestErr) end
   if message then writeAt(target, 2, 7, message) end
   drawButton(target, "status", "DETAILS", left, 8, right, 8, colors.lightBlue)
@@ -259,12 +330,14 @@ local function drawMenu(target, message)
   drawButton(target, "mode-nav", "NAV MODE", farLeft, 9, farRight, 9, colors.cyan)
   drawButton(target, "mode-hover", "HOVER", left, 10, right, 10, colors.cyan)
   drawButton(target, "mode-standby", "STANDBY", farLeft, 10, farRight, 10, colors.gray)
-  drawButton(target, "clear", "CLEAR DEST", left, 11, right, 11, colors.orange)
-  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 11, farRight, 11, colors.red)
-  drawButton(target, "config", "CONFIG", left, 12, right, 13, colors.blue)
-  drawButton(target, "refresh", "REFRESH", farLeft, 12, farRight, 13, colors.cyan)
-  drawButton(target, "update", "UPDATE", left, 14, right, 15, colors.purple)
-  drawButton(target, "uninstall", "UNINSTALL", farLeft, 14, farRight, 15, colors.brown)
+  drawButton(target, "schedules", "SCHEDULES", left, 11, right, 11, colors.green)
+  drawButton(target, "automate", "ARM AUTO", farLeft, 11, farRight, 11, colors.cyan)
+  drawButton(target, "clear", "CLEAR DEST", left, 12, right, 12, colors.orange)
+  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 12, farRight, 12, colors.red)
+  drawButton(target, "config", "CONFIG", left, 13, right, 14, colors.blue)
+  drawButton(target, "refresh", "REFRESH", farLeft, 13, farRight, 14, colors.cyan)
+  drawButton(target, "update", "UPDATE", left, 15, right, 16, colors.purple)
+  drawButton(target, "uninstall", "UNINSTALL", farLeft, 15, farRight, 16, colors.brown)
   drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
   writeAt(target, 2, height, "Touch/click. Q exits. Aircraft must run navtool server.")
 end
@@ -287,9 +360,15 @@ local function menu()
     elseif action == "refresh" then drawMenu(target)
     elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); drawMenu(target)
     elseif action == "waypoints" then waypointManager(target)
+    elseif action == "schedules" then scheduleManager(target)
     elseif action == "wp-add" then local previous = term.redirect(target); saveWaypoint(); term.redirect(previous); drawMenu(target)
     elseif action == "wp-goto" then local previous = term.redirect(target); waypointNamePrompt("goto-waypoint"); term.redirect(previous); drawMenu(target)
     elseif action == "wp-delete" then local previous = term.redirect(target); waypointNamePrompt("delete-waypoint"); term.redirect(previous); drawMenu(target)
+    elseif action == "sch-add" then local previous = term.redirect(target); createSchedule(); term.redirect(previous); drawMenu(target)
+    elseif action == "sch-run" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); drawMenu(target)
+    elseif action == "sch-delete" then local previous = term.redirect(target); scheduleNamePrompt("delete-schedule"); term.redirect(previous); drawMenu(target)
+    elseif action == "sch-stop" then local ok, e = request("stop-schedule"); drawMenu(target, ok and "Schedule stopped." or e)
+    elseif action == "automate" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); drawMenu(target)
     elseif action == "back" then drawMenu(target)
     elseif action == "mode-nav" then drawMenu(target, setMode("navigate") or "Mode set to navigate.")
     elseif action == "mode-hover" then drawMenu(target, setMode("hover") or "Mode set to hover.")
@@ -306,6 +385,7 @@ end
 if command == "status" then showStatus()
 elseif command == "target" then setTarget()
 elseif command == "waypoint" then saveWaypoint()
+elseif command == "schedule" then createSchedule()
 elseif command == "stop" then local ok, e = request("outputs-off"); if ok then print("Aircraft outputs cleared.") else printError(e) end
 elseif command == "config" then editConfig()
 else menu() end

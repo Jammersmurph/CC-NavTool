@@ -4,6 +4,8 @@ local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
 local WAYPOINTS_PATH = ROOT .. "/waypoints.db"
 local MODE_PATH = ROOT .. "/mode.db"
+local SCHEDULES_PATH = ROOT .. "/schedules.db"
+local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
 
@@ -92,6 +94,26 @@ local function saveMode(mode)
   saveData(MODE_PATH, { mode = mode })
 end
 
+local function loadSchedules()
+  return loadData(SCHEDULES_PATH, {})
+end
+
+local function saveSchedules(schedules)
+  saveData(SCHEDULES_PATH, schedules)
+end
+
+local function loadActiveSchedule()
+  return loadData(ACTIVE_SCHEDULE_PATH, nil)
+end
+
+local function saveActiveSchedule(active)
+  if not active then
+    if fs.exists(ACTIVE_SCHEDULE_PATH) then fs.delete(ACTIVE_SCHEDULE_PATH) end
+    return
+  end
+  saveData(ACTIVE_SCHEDULE_PATH, active)
+end
+
 local function saveTarget(target)
   local file = fs.open(TARGET_PATH, "w")
   file.write(textutils.serialize(target))
@@ -111,6 +133,22 @@ local function waypointList()
   for name in pairs(waypoints) do names[#names + 1] = name end
   table.sort(names)
   return waypoints, names
+end
+
+local function scheduleList()
+  local schedules = loadSchedules()
+  local names = {}
+  for name in pairs(schedules) do names[#names + 1] = name end
+  table.sort(names)
+  return schedules, names
+end
+
+local function distance(a, b)
+  if not a or not b then return nil end
+  local dx = (tonumber(a.x) or 0) - (tonumber(b.x) or 0)
+  local dy = (tonumber(a.y) or 0) - (tonumber(b.y) or 0)
+  local dz = (tonumber(a.z) or 0) - (tonumber(b.z) or 0)
+  return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 local function promptTarget()
@@ -162,6 +200,64 @@ local function promptWaypoint(config)
   sleep(1)
 end
 
+local function promptSchedule()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Create Coordinate Schedule")
+  write("Schedule name: ")
+  local name = read()
+  if name == "" then printError("Name is required."); sleep(1.5); return end
+  write("Number of stops: ")
+  local count = tonumber(read())
+  if not count or count < 1 then printError("Stop count must be at least 1."); sleep(1.5); return end
+  local stops = {}
+  for index = 1, math.floor(count) do
+    print("Stop " .. index)
+    write("  Label: ")
+    local label = read()
+    write("  X: ")
+    local x = tonumber(read())
+    write("  Y: ")
+    local y = tonumber(read())
+    write("  Z: ")
+    local z = tonumber(read())
+    if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
+    stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+  end
+  local schedules = loadSchedules()
+  schedules[name] = { name = name, stops = stops }
+  saveSchedules(schedules)
+  print("Schedule saved.")
+  sleep(1)
+end
+
+local startSchedule
+
+local function promptRunSchedule()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Run Schedule")
+  local schedules, names = scheduleList()
+  if #names == 0 then print("No schedules saved."); sleep(1.5); return end
+  for _, name in ipairs(names) do print("- " .. name .. " (" .. tostring(#(schedules[name].stops or {})) .. " stops)") end
+  write("Schedule name: ")
+  local name = read()
+  local ok, err = startSchedule(name)
+  if ok then print("Schedule armed. Run navtool automate to advance it.") else printError(err) end
+  sleep(1.5)
+end
+
+function startSchedule(name)
+  local schedules = loadSchedules()
+  local schedule = schedules[name]
+  if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then return false, "schedule not found or empty" end
+  local active = { name = name, index = 1, startedAt = os.epoch and os.epoch("utc") or os.time() }
+  saveActiveSchedule(active)
+  saveTarget(schedule.stops[1])
+  saveMode("navigate")
+  return true, schedule.stops[1]
+end
+
 local function openModem()
   for _, side in ipairs(peripheral.getNames()) do
     if peripheral.getType(side) == "modem" then
@@ -175,19 +271,28 @@ local function snapshot(config)
   local name = telemetryName(config)
   local target = loadTarget()
   local waypoints, names = waypointList()
+  local schedules, scheduleNames = scheduleList()
+  local activeSchedule = loadActiveSchedule()
   local mode = loadMode().mode or "standby"
-  if not name then return { version = VERSION, telemetry = false, target = target, waypoints = waypoints, waypointNames = names, mode = mode } end
+  if not name then return { version = VERSION, telemetry = false, target = target, waypoints = waypoints, waypointNames = names, schedules = schedules, scheduleNames = scheduleNames, activeSchedule = activeSchedule, mode = mode } end
+  local pose = callFirst(name, { "getLogicalPose", "getPose" })
+  local position = extractVector(pose)
   return {
     version = VERSION,
     telemetry = true,
     peripheral = name,
-    pose = callFirst(name, { "getLogicalPose", "getPose" }),
+    pose = pose,
+    position = position,
     velocity = callFirst(name, { "getLinearVelocity", "getVelocity" }),
     angularVelocity = callFirst(name, { "getAngularVelocity" }),
     mass = callFirst(name, { "getMass" }),
     target = target,
+    distanceToTarget = distance(position, target),
     waypoints = waypoints,
     waypointNames = names,
+    schedules = schedules,
+    scheduleNames = scheduleNames,
+    activeSchedule = activeSchedule,
     mode = mode,
   }
 end
@@ -257,8 +362,49 @@ local function server(config)
           else
             response = { ok = false, error = "waypoint not found" }
           end
+        elseif request.command == "schedule-list" then
+          local schedules, names = scheduleList()
+          response = { ok = true, schedules = schedules, names = names, active = loadActiveSchedule() }
+        elseif request.command == "save-schedule" and type(request.schedule) == "table" then
+          local schedule = request.schedule
+          local name = tostring(schedule.name or "")
+          local stops = type(schedule.stops) == "table" and schedule.stops or {}
+          if name ~= "" and #stops > 0 then
+            local normalized = {}
+            for index, stop in ipairs(stops) do
+              local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
+              if not x or not y or not z then normalized = nil; break end
+              normalized[#normalized + 1] = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+            end
+            if normalized then
+              local schedules = loadSchedules()
+              schedules[name] = { name = name, stops = normalized }
+              saveSchedules(schedules)
+              response = { ok = true, schedule = schedules[name] }
+            else
+              response = { ok = false, error = "invalid schedule stop" }
+            end
+          else
+            response = { ok = false, error = "invalid schedule" }
+          end
+        elseif request.command == "delete-schedule" then
+          local name = tostring(request.name or "")
+          local schedules = loadSchedules()
+          schedules[name] = nil
+          saveSchedules(schedules)
+          local active = loadActiveSchedule()
+          if active and active.name == name then saveActiveSchedule(nil); saveMode("standby") end
+          response = { ok = true }
+        elseif request.command == "run-schedule" then
+          local ok, result = startSchedule(tostring(request.name or ""))
+          if ok then response = { ok = true, target = result } else response = { ok = false, error = result } end
+        elseif request.command == "stop-schedule" then
+          saveActiveSchedule(nil)
+          saveMode("standby")
+          response = { ok = true }
         elseif request.command == "stop" or request.command == "outputs-off" then
           clearOutputs(config)
+          saveActiveSchedule(nil)
           saveMode("standby")
           response = { ok = true }
         else
@@ -278,7 +424,68 @@ local function status(config)
   print("Target: " .. textutils.serialize(state.target))
   print("Mode: " .. tostring(state.mode or "standby"))
   print("Waypoints: " .. tostring(#(state.waypointNames or {})))
+  print("Schedules: " .. tostring(#(state.scheduleNames or {})))
+  print("Active schedule: " .. textutils.serialize(state.activeSchedule))
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
+end
+
+local function automate(config)
+  local interval = config.updateInterval or 0.5
+  local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
+  print("CC-NavTool automation scheduler")
+  print("This advances schedule targets only. It does not drive thrusters yet.")
+  print("Press Q to stop automation and return to standby.")
+  while true do
+    local state = snapshot(config)
+    local active = state.activeSchedule
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("CC-NavTool Automate")
+    print("Telemetry: " .. (state.telemetry and "online" or "offline"))
+    print("Mode: " .. tostring(state.mode or "standby"))
+    if not active then
+      print("Active schedule: none")
+      print("Use the GUI or remote to run a saved schedule.")
+    else
+      local schedules = loadSchedules()
+      local schedule = schedules[active.name]
+      if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then
+        print("Active schedule is missing. Clearing.")
+        saveActiveSchedule(nil)
+        saveMode("standby")
+      else
+        local index = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
+        local stop = schedule.stops[index]
+        if not state.target or state.target.name ~= stop.name or tonumber(state.target.x) ~= tonumber(stop.x) or tonumber(state.target.y) ~= tonumber(stop.y) or tonumber(state.target.z) ~= tonumber(stop.z) then
+          saveTarget(stop)
+          saveMode("navigate")
+        end
+        print("Schedule: " .. active.name)
+        print("Stop: " .. index .. "/" .. #schedule.stops .. " " .. tostring(stop.name or ""))
+        print(string.format("Target: %.1f %.1f %.1f", tonumber(stop.x) or 0, tonumber(stop.y) or 0, tonumber(stop.z) or 0))
+        if state.distanceToTarget then print(string.format("Distance: %.1f", state.distanceToTarget)) else print("Distance: unknown") end
+        if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
+          if index >= #schedule.stops then
+            print("Schedule complete. Returning to standby.")
+            saveActiveSchedule(nil)
+            saveMode("standby")
+          else
+            active.index = index + 1
+            saveActiveSchedule(active)
+            saveTarget(schedule.stops[active.index])
+            saveMode("navigate")
+            print("Advancing to next stop.")
+          end
+        end
+      end
+    end
+    print("")
+    print("No redstone automation is active in this build.")
+    local timer = os.startTimer(interval)
+    local event, value
+    repeat event, value = os.pullEvent() until event == "timer" and value == timer or event == "key"
+    if event == "key" and value == keys.q then saveActiveSchedule(nil); saveMode("standby"); clearOutputs(config); return end
+  end
 end
 
 local function screen(config)
@@ -379,6 +586,7 @@ local function drawInterface(config, target)
   line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(state.velocity))
   line(target, math.max(28, math.floor(width / 2)), 6, "Mass: ", state.mass)
   line(target, math.max(28, math.floor(width / 2)), 7, "Waypoints: ", #(state.waypointNames or {}))
+  line(target, math.max(28, math.floor(width / 2)), 8, "Schedules: ", #(state.scheduleNames or {}))
   local left = 2
   local right = math.max(18, math.floor(width / 2) - 1)
   local farLeft = right + 2
@@ -387,14 +595,16 @@ local function drawInterface(config, target)
   drawButton(target, "details", "DETAILS", farLeft, 10, farRight, 10, colors.lightBlue)
   drawButton(target, "target", "SET TARGET", left, 11, right, 11, colors.green)
   drawButton(target, "waypoint", "SAVE WP", farLeft, 11, farRight, 11, colors.lime)
-  drawButton(target, "mode-nav", "NAV MODE", left, 12, right, 12, colors.cyan)
-  drawButton(target, "mode-hover", "HOVER MODE", farLeft, 12, farRight, 12, colors.cyan)
-  drawButton(target, "server", "START SERVER", left, 13, right, 13, colors.lime)
-  drawButton(target, "standby", "STANDBY", farLeft, 13, farRight, 13, colors.gray)
-  drawButton(target, "clear", "CLEAR TARGET", left, 14, right, 14, colors.orange)
-  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 14, farRight, 14, colors.red)
-  drawButton(target, "update", "UPDATE", left, 15, right, 15, colors.purple)
-  drawButton(target, "uninstall", "UNINSTALL", farLeft, 15, farRight, 15, colors.brown)
+  drawButton(target, "schedule", "NEW SCHED", left, 12, right, 12, colors.green)
+  drawButton(target, "run-schedule", "RUN SCHED", farLeft, 12, farRight, 12, colors.cyan)
+  drawButton(target, "automate", "AUTOMATE", left, 13, right, 13, colors.cyan)
+  drawButton(target, "server", "START SERVER", farLeft, 13, farRight, 13, colors.lime)
+  drawButton(target, "mode-nav", "NAV MODE", left, 14, right, 14, colors.cyan)
+  drawButton(target, "standby", "STANDBY", farLeft, 14, farRight, 14, colors.gray)
+  drawButton(target, "clear", "CLEAR TARGET", left, 15, right, 15, colors.orange)
+  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 15, farRight, 15, colors.red)
+  drawButton(target, "update", "UPDATE", left, 16, right, 16, colors.purple)
+  drawButton(target, "uninstall", "UNINSTALL", farLeft, 16, farRight, 16, colors.brown)
   drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
   writeAt(target, 2, height, "Touch/click. Q exits. Server blocks this screen while running.")
 end
@@ -426,6 +636,12 @@ local function showDetails(config, target)
     line(target, 2, y, "WP " .. name .. ": ", targetText(state.waypoints[name]))
     y = y + 1
   end
+  for _, name in ipairs(state.scheduleNames or {}) do
+    if y >= height - 3 then break end
+    local schedule = state.schedules[name]
+    line(target, 2, y, "SCH " .. name .. ": ", tostring(#(schedule.stops or {})) .. " stops")
+    y = y + 1
+  end
   drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
 end
 
@@ -448,8 +664,10 @@ local function interface(config)
     elseif action == "back" then drawInterface(config, target)
     elseif action == "target" then promptTarget(); drawInterface(config, target)
     elseif action == "waypoint" then promptWaypoint(config); drawInterface(config, target)
+    elseif action == "schedule" then promptSchedule(); drawInterface(config, target)
+    elseif action == "run-schedule" then promptRunSchedule(); drawInterface(config, target)
+    elseif action == "automate" then automate(config); drawInterface(config, target)
     elseif action == "mode-nav" then saveMode("navigate"); drawInterface(config, target)
-    elseif action == "mode-hover" then saveMode("hover"); drawInterface(config, target)
     elseif action == "standby" then saveMode("standby"); drawInterface(config, target)
     elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target)
     elseif action == "stop" then clearOutputs(config); saveMode("standby"); drawInterface(config, target)
@@ -470,7 +688,8 @@ if not config then printError("Config error: " .. err); return end
 if command == "status" then status(config)
 elseif command == "server" then server(config)
 elseif command == "ui" or command == "run" then interface(config)
+elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 else
-  print("Usage: navtool ui|status|server|update|uninstall|outputs-off|version")
+  print("Usage: navtool ui|status|server|automate|update|uninstall|outputs-off|version")
 end
