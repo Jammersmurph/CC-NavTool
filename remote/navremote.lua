@@ -503,11 +503,15 @@ local function editConfig()
 end
 
 local function manualPulse(control, strength, duration)
-  return request("manual-control", { control = control, strength = strength or 3, duration = duration or 0.35 })
+  local response, err = request("manual-control", { control = control, strength = strength or 3, duration = duration or 0.35 })
+  if err == "unsupported command" then return nil, "Update/restart navtool server." end
+  return response, err
 end
 
 local function manualRelease(control)
-  return request("manual-control", { control = control, strength = 0, duration = 0 })
+  local response, err = request("manual-control", { control = control, strength = 0, duration = 0 })
+  if err == "unsupported command" then return nil, "Update/restart navtool server." end
+  return response, err
 end
 
 local function manualKey(key)
