@@ -1,6 +1,11 @@
 return {
-  protocol = "cc-navtool",
-  host = "navtool-aircraft",
-  sharedKey = "",
-  timeout = 3,
+  activeProfile = "default",
+  profiles = {
+    default = {
+      protocol = "cc-navtool",
+      host = "navtool-aircraft",
+      sharedKey = "",
+      timeout = 3,
+    },
+  },
 }
