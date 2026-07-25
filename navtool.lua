@@ -89,11 +89,11 @@ local function remoteServer(config)
   local net=config.network or {}
   if net.enabled==false then error("Networking is disabled in config",0) end
   if not openWirelessModem() then error("No wireless modem found",0) end
-  local protocol=net.protocol or "cc-navtool"; local host=net.host or "navtool-aircraft"
-  rednet.host(protocol,host)
-  local state=loadState(); print("CC-NavTool remote server online"); print("Host: "..host); print("Protocol: "..protocol); print("Press Ctrl+T to stop.")
+  local channel=net.channel or net.protocol or "cc-navtool"; local host=net.host or "navtool-aircraft"
+  rednet.host(channel,host)
+  local state=loadState(); print("CC-NavTool remote server online"); print("Host: "..host); print("Channel: "..channel); print("Press Ctrl+T to stop.")
   while true do
-    local sender,msg=rednet.receive(protocol)
+    local sender,msg=rednet.receive(channel)
     if type(msg)=="table" and msg.type=="navtool_request" then
       local response={type="navtool_response",ok=false}
       if msg.key~=(net.sharedKey or "change-me") then response.error="Authentication failed"
@@ -113,7 +113,7 @@ local function remoteServer(config)
           if ok then sleep(duration); clearOutputs(config); response.ok=true else response.error=err end
         else response.error="Unknown command" end
       end
-      rednet.send(sender,response,protocol)
+      rednet.send(sender,response,channel)
     end
   end
 end

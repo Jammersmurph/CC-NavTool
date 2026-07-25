@@ -11,7 +11,7 @@ local function loadConfig()
   if type(config.profiles) ~= "table" then
     config.profiles = {
       default = {
-        protocol = config.protocol or "cc-navtool",
+        channel = config.channel or config.protocol or "cc-navtool",
         host = config.host or "navtool-aircraft",
         sharedKey = config.sharedKey or "",
         timeout = config.timeout or 3,
@@ -22,6 +22,13 @@ local function loadConfig()
   end
   if not config.activeProfile or not config.profiles[config.activeProfile] then
     for name in pairs(config.profiles) do config.activeProfile = name; break end
+  end
+  for _, profile in pairs(config.profiles or {}) do
+    if profile.channel == nil and profile.protocol ~= nil then
+      profile.channel = profile.protocol
+      profile.protocol = nil
+      config._migrated = true
+    end
   end
   return config
 end
@@ -53,8 +60,8 @@ local function setActiveProfile(name)
   return false
 end
 
-local function discoverHosts(protocol)
-  local ok, result = pcall(rednet.lookup, protocol or "cc-navtool")
+local function discoverHosts(channel)
+  local ok, result = pcall(rednet.lookup, channel or "cc-navtool")
   local hosts = {}
   if not ok or type(result) ~= "table" then return hosts end
   for key, value in pairs(result) do
@@ -68,10 +75,10 @@ local function discoverHosts(protocol)
   return hosts
 end
 
-local function chooseDiscoveredHost(protocol)
-  local hosts = discoverHosts(protocol)
+local function chooseDiscoveredHost(channel)
+  local hosts = discoverHosts(channel)
   if #hosts == 0 then
-    print("No navtool servers found on protocol " .. tostring(protocol) .. ".")
+    print("No navtool servers found on channel " .. tostring(channel) .. ".")
     return nil
   end
   print("Discovered navtool servers:")
@@ -102,11 +109,11 @@ local function addProfile()
   write("Profile name: ")
   local name = read()
   if name == "" then printError("Profile name is required."); sleep(1.5); return end
-  write("Protocol [cc-navtool]: ")
-  local protocol = read()
-  protocol = protocol ~= "" and protocol or "cc-navtool"
+  write("Channel [cc-navtool]: ")
+  local channel = read()
+  channel = channel ~= "" and channel or "cc-navtool"
   print("Scanning for hosted aircraft...")
-  local host = chooseDiscoveredHost(protocol)
+  local host = chooseDiscoveredHost(channel)
   if not host then
     write("Host [navtool-aircraft]: ")
     host = read()
@@ -117,7 +124,7 @@ local function addProfile()
   local timeout = tonumber(read())
   config.profiles[name] = {
     host = host ~= "" and host or "navtool-aircraft",
-    protocol = protocol,
+    channel = channel,
     sharedKey = key,
     timeout = timeout or 3,
   }
@@ -186,15 +193,15 @@ if command ~= "config" and command ~= "profile" and not openModem() then printEr
 
 local function request(command, extra)
   local connection = activeProfile()
-  local protocol = connection.protocol or "cc-navtool"
+  local channel = connection.channel or connection.protocol or "cc-navtool"
   local host = connection.host or "navtool-aircraft"
-  local hostId = rednet.lookup(protocol, host)
+  local hostId = rednet.lookup(channel, host)
   if not hostId then return nil, "Aircraft host not found" end
   local payload = extra or {}
   payload.command = command
   payload.key = connection.sharedKey or ""
-  rednet.send(hostId, payload, protocol)
-  local sender, response = rednet.receive(protocol, connection.timeout or 3)
+  rednet.send(hostId, payload, channel)
+  local sender, response = rednet.receive(channel, connection.timeout or 3)
   if sender ~= hostId or type(response) ~= "table" then return nil, "No valid response" end
   if not response.ok then return nil, response.error or "Command rejected" end
   return response
@@ -462,14 +469,14 @@ local function editConfig()
   print("Profile: " .. tostring(config.activeProfile))
   write("Host [" .. tostring(connection.host or "navtool-aircraft") .. "]: ")
   local host = read()
-  write("Protocol [" .. tostring(connection.protocol or "cc-navtool") .. "]: ")
-  local protocol = read()
+  write("Channel [" .. tostring(connection.channel or connection.protocol or "cc-navtool") .. "]: ")
+  local channel = read()
   write("Shared key [hidden, blank keeps]: ")
   local key = read("*")
   write("Timeout seconds [" .. tostring(connection.timeout or 3) .. "]: ")
   local timeout = tonumber(read())
   if host ~= "" then connection.host = host end
-  if protocol ~= "" then connection.protocol = protocol end
+  if channel ~= "" then connection.channel = channel; connection.protocol = nil end
   if key ~= "" then connection.sharedKey = key end
   if timeout then connection.timeout = timeout end
   saveConfig(config)

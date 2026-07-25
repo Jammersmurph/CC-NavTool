@@ -28,7 +28,7 @@ return {
   },
   network = {
     enabled = false,
-    protocol = "cc-navtool",
+    channel = "cc-navtool",
     host = "navtool-aircraft",
     sharedKey = "",
   },

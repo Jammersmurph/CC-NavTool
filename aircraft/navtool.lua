@@ -12,6 +12,11 @@ local buttons = {}
 local function loadConfig()
   local ok, config = pcall(dofile, CONFIG_PATH)
   if not ok or type(config) ~= "table" then return nil, tostring(config) end
+  if type(config.network) == "table" and config.network.channel == nil and config.network.protocol ~= nil then
+    config.network.channel = config.network.protocol
+    config.network.protocol = nil
+    config._migrated = true
+  end
   return config
 end
 
@@ -58,7 +63,7 @@ local function onboarding(config, force)
   config.network = type(config.network) == "table" and config.network or {}
   local enable = promptYesNo("Enable Rednet remote control", config.network.enabled == true)
   config.network.enabled = enable
-  config.network.protocol = prompt(config.network.protocol or "cc-navtool", "Rednet protocol")
+  config.network.channel = prompt(config.network.channel or "cc-navtool", "Rednet channel")
   config.network.host = prompt(config.network.host or ("navtool-aircraft-" .. tostring(os.getComputerID())), "Aircraft host name")
   if enable then
     repeat
@@ -76,7 +81,7 @@ local function onboarding(config, force)
   print("Setup saved to " .. CONFIG_PATH)
   if enable then
     print("Remote profile values:")
-    print("  Protocol: " .. tostring(config.network.protocol))
+    print("  Channel: " .. tostring(config.network.channel))
     print("  Host: " .. tostring(config.network.host))
     print("  Shared key: the key you just entered")
   else
@@ -406,13 +411,13 @@ local function server(config)
   end
   local modem = openModem()
   if not modem then printError("No wired or wireless modem found."); return end
-  local protocol = config.network.protocol or "cc-navtool"
+  local channel = config.network.channel or config.network.protocol or "cc-navtool"
   local host = config.network.host or "navtool-aircraft"
-  rednet.host(protocol, host)
+  rednet.host(channel, host)
   print("navtool remote server online")
   print("Host: " .. host)
   while true do
-    local sender, request = rednet.receive(protocol)
+    local sender, request = rednet.receive(channel)
     if type(request) == "table" then
       local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
       local response = { ok = false, error = "unauthorized" }
@@ -515,7 +520,7 @@ local function server(config)
           response = { ok = false, error = "unsupported command" }
         end
       end
-      rednet.send(sender, response, protocol)
+      rednet.send(sender, response, channel)
     end
   end
 end
@@ -800,7 +805,7 @@ local function showDetails(config, target)
   line(target, 2, 9, "Angular velocity: ", compact(state.angularVelocity))
   line(target, 2, 10, "Mass: ", state.mass)
   line(target, 2, 12, "Network host: ", config.network and config.network.host)
-  line(target, 2, 13, "Protocol: ", config.network and config.network.protocol)
+  line(target, 2, 13, "Channel: ", config.network and (config.network.channel or config.network.protocol))
   local y = 15
   for _, name in ipairs(state.waypointNames or {}) do
     if y >= height - 3 then break end
@@ -856,6 +861,7 @@ if command == "version" then print(VERSION); return end
 
 local config, err = loadConfig()
 if not config then printError("Config error: " .. err); return end
+if config._migrated then config._migrated = nil; saveConfig(config) end
 if command == "setup" or command == "onboarding" then onboarding(config, true); return end
 config = onboarding(config, false)
 if command == "status" then status(config)
