@@ -391,6 +391,7 @@ local function promptSchedule()
 end
 
 local startSchedule
+local serverAutomationTick
 
 local function promptRunSchedule()
   term.clear()
@@ -518,6 +519,7 @@ local function server(config)
   print("navtool remote server online")
   print("Host: " .. host)
   local manualUntil = {}
+  local lastAutomation = 0
   local function clearExpiredManual()
     local now = os.clock()
     for control, expiresAt in pairs(manualUntil) do
@@ -529,6 +531,14 @@ local function server(config)
   end
   while true do
     clearExpiredManual()
+    if next(manualUntil) == nil and serverAutomationTick then
+      local now = os.clock()
+      local interval = tonumber(config.updateInterval) or 0.5
+      if now - lastAutomation >= interval then
+        lastAutomation = now
+        serverAutomationTick(config)
+      end
+    end
     local sender, request = rednet.receive(channel, 0.05)
     clearExpiredManual()
     if type(request) == "table" then
@@ -784,6 +794,47 @@ local function automationOutputs(config, state)
     notes[#notes + 1] = "unsupported mode"
   end
   return outputs, notes
+end
+
+serverAutomationTick = function(config)
+  local state = snapshot(config)
+  local active = state.activeSchedule
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local arrivalRadius = tonumber(navigation.arrivalRadius) or 5
+  if active then
+    local schedules = loadSchedules()
+    local schedule = schedules[active.name]
+    if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then
+      saveActiveSchedule(nil)
+      saveMode("standby")
+      clearOutputs(config)
+      state = snapshot(config)
+    else
+      local index = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
+      local stop = schedule.stops[index]
+      if not state.target or state.target.name ~= stop.name or tonumber(state.target.x) ~= tonumber(stop.x) or tonumber(state.target.y) ~= tonumber(stop.y) or tonumber(state.target.z) ~= tonumber(stop.z) then
+        saveTarget(stop)
+        saveMode("navigate")
+        state = snapshot(config)
+      end
+      if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
+        if index >= #schedule.stops then
+          saveActiveSchedule(nil)
+          saveMode("standby")
+          clearOutputs(config)
+          state = snapshot(config)
+        else
+          active.index = index + 1
+          saveActiveSchedule(active)
+          saveTarget(schedule.stops[active.index])
+          saveMode("navigate")
+          state = snapshot(config)
+        end
+      end
+    end
+  end
+  local requested = automationOutputs(config, state)
+  applyOutputs(config, requested)
 end
 
 local function automate(config)
