@@ -502,6 +502,45 @@ local function editConfig()
   sleep(1)
 end
 
+local function manualPulse(control, strength, duration)
+  return request("manual-control", { control = control, strength = strength or 3, duration = duration or 0.35 })
+end
+
+local function manualRelease(control)
+  return request("manual-control", { control = control, strength = 0, duration = 0 })
+end
+
+local function manualKey(key)
+  if key == keys.w or key == keys.up then return "forward"
+  elseif key == keys.s or key == keys.down then return "reverse"
+  elseif key == keys.a or key == keys.left then return "left"
+  elseif key == keys.d or key == keys.right then return "right"
+  elseif key == keys.space then return "up"
+  elseif key == keys.leftShift then return "down" end
+end
+
+local function drawManualControl(target, message)
+  buttons = {}
+  local width, height = target.getSize()
+  color(target, colors.black, colors.white)
+  target.clear()
+  drawHeader(target, "Manual Control")
+  writeAt(target, 2, 3, "Each press sends a short bounded pulse, then releases.")
+  writeAt(target, 2, 4, "Keys: W/A/S/D, arrows, Space up, Shift down.")
+  if message then writeAt(target, 2, 5, message) end
+  local center = math.floor(width / 2)
+  local buttonWidth = math.max(9, math.floor(width / 4))
+  drawButton(target, "manual-forward", "FORWARD", center - math.floor(buttonWidth / 2), 7, center + math.floor(buttonWidth / 2), 7, colors.green)
+  drawButton(target, "manual-left", "LEFT", 2, 9, 2 + buttonWidth, 9, colors.cyan)
+  drawButton(target, "manual-stop", "STOP", center - math.floor(buttonWidth / 2), 9, center + math.floor(buttonWidth / 2), 9, colors.red)
+  drawButton(target, "manual-right", "RIGHT", width - buttonWidth - 2, 9, width - 2, 9, colors.cyan)
+  drawButton(target, "manual-reverse", "REVERSE", center - math.floor(buttonWidth / 2), 11, center + math.floor(buttonWidth / 2), 11, colors.orange)
+  drawButton(target, "manual-up", "UP", 2, 13, center - 2, 13, colors.lime)
+  drawButton(target, "manual-down", "DOWN", center + 1, 13, width - 2, 13, colors.brown)
+  drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
+  writeAt(target, 2, height, "Manual control forces standby and stops active schedules.")
+end
+
 local function drawMenu(target, message, menu, data, requestErr)
   buttons = {}
   local connection = activeProfile()
@@ -531,6 +570,7 @@ local function drawMenu(target, message, menu, data, requestErr)
   if menu == "nav" then
     drawButtonRow(target, {
       { "target", "SET DEST", colors.green },
+      { "manual", "MANUAL", colors.lime },
       { "clear", "CLEAR DEST", colors.orange },
     }, 11, 2, width - 2)
     drawButtonRow(target, {
@@ -564,12 +604,21 @@ end
 local function menu()
   local target, monitorName = screen()
   local activeMenu
+  local heldControls = {}
+  local manualTimer
   local statusData = {}
   local statusErr
   local function refreshStatus()
     local response, requestErr = request("status")
     statusData = response and response.data or statusData or {}
     statusErr = requestErr
+  end
+  local function hasHeldManualControls()
+    for _, held in pairs(heldControls) do if held then return true end end
+    return false
+  end
+  local function scheduleManualRenewal()
+    if hasHeldManualControls() and not manualTimer then manualTimer = os.startTimer(0.15) end
   end
   drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
   while true do
@@ -582,6 +631,25 @@ local function menu()
     elseif event ~= "monitor_touch" then
       x, y = nil, nil
     end
+    if buttons["manual-forward"] and event == "timer" and side == manualTimer then
+      manualTimer = nil
+      for control, held in pairs(heldControls) do
+        if held then manualPulse(control, 3, 0.35) end
+      end
+      scheduleManualRenewal()
+    elseif buttons["manual-forward"] and (event == "key" or event == "key_up") then
+      local control = manualKey(side)
+      if control then
+        if event == "key" then
+          heldControls[control] = true
+          manualPulse(control, 3, 0.35)
+          scheduleManualRenewal()
+        else
+          heldControls[control] = nil
+          manualRelease(control)
+        end
+      end
+    end
     local action = x and hitButton(x, y)
     if action == "menu-nav" then activeMenu = activeMenu == "nav" and nil or "nav"; drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "menu-library" then activeMenu = activeMenu == "library" and nil or "library"; drawMenu(target, nil, activeMenu, statusData, statusErr)
@@ -589,6 +657,14 @@ local function menu()
     elseif action == "status" then local _, height = target.getSize(); showStatus(target); writeAt(target, 2, height, "Touch anywhere to return."); os.pullEvent(); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "refresh" then refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "manual" then drawManualControl(target)
+    elseif action == "manual-forward" then local ok, e = manualPulse("forward"); drawManualControl(target, ok and "Forward pulse sent." or e)
+    elseif action == "manual-reverse" then local ok, e = manualPulse("reverse"); drawManualControl(target, ok and "Reverse pulse sent." or e)
+    elseif action == "manual-left" then local ok, e = manualPulse("left"); drawManualControl(target, ok and "Left pulse sent." or e)
+    elseif action == "manual-right" then local ok, e = manualPulse("right"); drawManualControl(target, ok and "Right pulse sent." or e)
+    elseif action == "manual-up" then local ok, e = manualPulse("up"); drawManualControl(target, ok and "Up pulse sent." or e)
+    elseif action == "manual-down" then local ok, e = manualPulse("down"); drawManualControl(target, ok and "Down pulse sent." or e)
+    elseif action == "manual-stop" then heldControls = {}; manualTimer = nil; local ok, e = request("outputs-off"); if ok then statusData.mode = "standby" end; drawManualControl(target, ok and "Outputs cleared." or e)
     elseif action == "waypoints" then waypointManager(target)
     elseif action == "schedules" then scheduleManager(target)
     elseif action == "profiles" then profileManager(target)
@@ -603,7 +679,7 @@ local function menu()
     elseif action == "profile-add" then local previous = term.redirect(target); addProfile(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "profile-select" then local previous = term.redirect(target); selectProfilePrompt(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "profile-delete" then local previous = term.redirect(target); deleteProfilePrompt(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
-    elseif action == "back" then drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "back" then heldControls = {}; manualTimer = nil; drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "mode-nav" then local err = setMode("navigate"); if not err then statusData.mode = "navigate" end; drawMenu(target, err or "Mode set to navigate.", activeMenu, statusData, statusErr)
     elseif action == "mode-hover" then local err = setMode("hover"); if not err then statusData.mode = "hover" end; drawMenu(target, err or "Mode set to hover.", activeMenu, statusData, statusErr)
     elseif action == "mode-standby" then local err = setMode("standby"); if not err then statusData.mode = "standby" end; drawMenu(target, err or "Mode set to standby.", activeMenu, statusData, statusErr)

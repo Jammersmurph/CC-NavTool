@@ -416,8 +416,20 @@ local function server(config)
   rednet.host(channel, host)
   print("navtool remote server online")
   print("Host: " .. host)
+  local manualUntil = {}
+  local function clearExpiredManual()
+    local now = os.clock()
+    for control, expiresAt in pairs(manualUntil) do
+      if expiresAt <= now then
+        pcall(setOutput, config, control, 0)
+        manualUntil[control] = nil
+      end
+    end
+  end
   while true do
-    local sender, request = rednet.receive(channel)
+    clearExpiredManual()
+    local sender, request = rednet.receive(channel, 0.05)
+    clearExpiredManual()
     if type(request) == "table" then
       local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
       local response = { ok = false, error = "unauthorized" }
@@ -438,6 +450,31 @@ local function server(config)
             response = { ok = true, mode = mode }
           else
             response = { ok = false, error = "unsupported mode" }
+          end
+        elseif request.command == "manual-control" then
+          local control = tostring(request.control or "")
+          local output = config.outputs and config.outputs[control]
+          if type(output) ~= "table" or not output.side then
+            response = { ok = false, error = "unsupported control" }
+          else
+            local safety = type(config.safety) == "table" and config.safety or {}
+            local duration = math.max(0, math.min(tonumber(safety.maximumRemotePulse) or 2.0, tonumber(request.duration) or 0.25))
+            local strength = tonumber(request.strength) or outputMaximum(config, output)
+            if next(manualUntil) == nil and (tonumber(strength) or 0) > 0 then
+              saveActiveSchedule(nil)
+              saveMode("standby")
+            end
+            local ok, value = pcall(setOutput, config, control, strength)
+            if ok then
+              if duration > 0 and (tonumber(strength) or 0) > 0 then
+                manualUntil[control] = os.clock() + duration
+              else
+                manualUntil[control] = nil
+              end
+              response = { ok = true, control = control, value = value or 0, duration = duration }
+            else
+              response = { ok = false, error = "output failed" }
+            end
           end
         elseif request.command == "waypoint-list" then
           local waypoints, names = waypointList()
@@ -512,6 +549,7 @@ local function server(config)
           clearOutputs(config)
           response = { ok = true }
         elseif request.command == "stop" or request.command == "outputs-off" then
+          manualUntil = {}
           clearOutputs(config)
           saveActiveSchedule(nil)
           saveMode("standby")
