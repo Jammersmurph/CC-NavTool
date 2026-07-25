@@ -3,6 +3,7 @@ local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
 local args = { ... }
+local buttons = {}
 
 local function loadConfig()
   local ok, config = pcall(dofile, CONFIG_PATH)
@@ -136,14 +137,107 @@ local function status(config)
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
 end
 
+local function screen(config)
+  if config.monitorPeripheral and peripheral.isPresent(config.monitorPeripheral) then
+    local monitor = peripheral.wrap(config.monitorPeripheral)
+    if monitor then monitor.setTextScale(0.5); return monitor, config.monitorPeripheral end
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "monitor" then
+      local monitor = peripheral.wrap(name)
+      if monitor then monitor.setTextScale(0.5); return monitor, name end
+    end
+  end
+  return term.current(), nil
+end
+
+local function color(target, background, foreground)
+  if target.isColor and target.isColor() then
+    target.setBackgroundColor(background)
+    target.setTextColor(foreground)
+  end
+end
+
+local function writeAt(target, x, y, text)
+  target.setCursorPos(x, y)
+  target.write(text)
+end
+
+local function drawButton(target, id, label, x1, y1, x2, y2, background)
+  buttons[id] = { x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+  color(target, background or colors.gray, colors.white)
+  for y = y1, y2 do
+    target.setCursorPos(x1, y)
+    target.write(string.rep(" ", x2 - x1 + 1))
+  end
+  writeAt(target, x1 + math.floor((x2 - x1 + 1 - #label) / 2), y1 + math.floor((y2 - y1) / 2), label)
+  color(target, colors.black, colors.white)
+end
+
+local function hitButton(x, y)
+  for id, button in pairs(buttons) do
+    if x >= button.x1 and x <= button.x2 and y >= button.y1 and y <= button.y2 then return id end
+  end
+end
+
+local function compact(value)
+  local text = textutils.serialize(value)
+  if #text > 38 then return text:sub(1, 35) .. "..." end
+  return text
+end
+
+local function drawInterface(config, target)
+  buttons = {}
+  local state = snapshot(config)
+  local width, height = target.getSize()
+  color(target, colors.black, colors.white)
+  target.clear()
+  writeAt(target, 2, 1, "CC-NavTool Aircraft " .. VERSION)
+  writeAt(target, 2, 3, "Telemetry: " .. (state.telemetry and "ONLINE" or "OFFLINE"))
+  writeAt(target, 2, 4, "Peripheral: " .. tostring(state.peripheral or "none"))
+  writeAt(target, 2, 5, "Network: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
+  writeAt(target, 2, 6, "Target: " .. compact(state.target))
+  writeAt(target, 2, 7, "Velocity: " .. compact(state.velocity))
+  writeAt(target, 2, 8, "Mass: " .. tostring(state.mass or "unknown"))
+  local left = 2
+  local right = math.max(18, math.floor(width / 2) - 1)
+  local farLeft = right + 2
+  local farRight = width - 2
+  drawButton(target, "refresh", "REFRESH", left, 9, right, 11, colors.blue)
+  drawButton(target, "server", "START SERVER", farLeft, 9, farRight, 11, colors.green)
+  drawButton(target, "clear", "CLEAR TARGET", left, 13, right, 15, colors.orange)
+  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 13, farRight, 15, colors.red)
+  drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
+  writeAt(target, 2, height, "Touch/click a button. Q exits.")
+end
+
+local function interface(config)
+  local target, monitorName = screen(config)
+  drawInterface(config, target)
+  while true do
+    local event, side, x, y = os.pullEvent()
+    if event == "key" and side == keys.q then return end
+    if event == "mouse_click" then x, y = side, x
+    elseif event == "monitor_touch" and side ~= monitorName then x, y = nil, nil
+    elseif event ~= "monitor_touch" then x, y = nil, nil end
+    local action = x and hitButton(x, y)
+    if action == "refresh" then drawInterface(config, target)
+    elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target)
+    elseif action == "stop" then clearOutputs(config); drawInterface(config, target)
+    elseif action == "server" then target.clear(); writeAt(target, 2, 2, "Starting remote server..."); server(config); return
+    elseif action == "exit" then return end
+  end
+end
+
 local config, err = loadConfig()
 if not config then printError("Config error: " .. err); return end
-local command = (args[1] or "status"):lower()
+local command = (args[1] or "ui"):lower()
 if command == "status" then status(config)
 elseif command == "server" then server(config)
+elseif command == "ui" or command == "run" then interface(config)
 elseif command == "update" then shell.run(ROOT .. "/update.lua")
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 elseif command == "version" then print(VERSION)
 else
-  print("Usage: navtool status|server|update|outputs-off|version")
+  print("Usage: navtool ui|status|server|update|outputs-off|version")
 end
