@@ -104,6 +104,49 @@ local function has(list, wanted)
   return false
 end
 
+local function peripheralHasType(name, wanted)
+  if type(peripheral.hasType) == "function" then
+    local ok, result = pcall(peripheral.hasType, name, wanted)
+    if ok then return result end
+  end
+  local ok, result = pcall(peripheral.getType, name)
+  if not ok then return false end
+  if type(result) == "table" then return has(result, wanted) end
+  return result == wanted
+end
+
+local function findPeripheralByType(configName, config, wanted)
+  local configured = config[configName]
+  if configured and peripheral.isPresent(configured) then return configured end
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheralHasType(name, wanted) then return name end
+  end
+end
+
+local function findPeripheralsByType(wanted)
+  local found = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheralHasType(name, wanted) then found[#found + 1] = name end
+  end
+  return found
+end
+
+local function sublevelAvailable(config)
+  if config.sublevelEnabled == false then return false end
+  if type(sublevel) ~= "table" then return false end
+  if type(sublevel.isInPlotGrid) == "function" then
+    local ok, result = pcall(sublevel.isInPlotGrid)
+    return ok and result == true
+  end
+  return type(sublevel.getLogicalPose) == "function"
+end
+
+local function callSublevel(method)
+  if type(sublevel) ~= "table" or type(sublevel[method]) ~= "function" then return nil end
+  local ok, value = pcall(sublevel[method])
+  if ok then return value end
+end
+
 local function telemetryName(config)
   if config.telemetryPeripheral and peripheral.isPresent(config.telemetryPeripheral) then
     return config.telemetryPeripheral
@@ -111,6 +154,24 @@ local function telemetryName(config)
   for _, name in ipairs(peripheral.getNames()) do
     local available = methods(name)
     if has(available, "getLogicalPose") or has(available, "getPose") or has(available, "getPosition") or has(available, "getShipPosition") or (has(available, "getX") and has(available, "getY") and has(available, "getZ")) or (has(available, "getLinearVelocity") and has(available, "getAngularVelocity")) then
+      return name
+    end
+  end
+end
+
+local function orientationName(config, telemetry)
+  if config.orientationPeripheral and peripheral.isPresent(config.orientationPeripheral) then
+    return config.orientationPeripheral
+  end
+  if telemetry then
+    local available = methods(telemetry)
+    if has(available, "getLogicalPose") or has(available, "getPose") or has(available, "getOrientation") or has(available, "getRotation") or has(available, "getFacing") or has(available, "getDirection") or has(available, "getYaw") or has(available, "getHeading") or has(available, "getBearing") then
+      return telemetry
+    end
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    local available = methods(name)
+    if has(available, "getLogicalPose") or has(available, "getPose") or has(available, "getOrientation") or has(available, "getRotation") or has(available, "getFacing") or has(available, "getDirection") or has(available, "getYaw") or has(available, "getHeading") or has(available, "getBearing") then
       return name
     end
   end
@@ -334,6 +395,124 @@ local function headingFromPose(config, pose)
   end
 end
 
+local function headingFromCardinal(value)
+  if type(value) ~= "string" then return nil end
+  value = value:lower()
+  if value == "north" or value == "n" then return { x = 0, y = 0, z = -1 }, "cardinal" end
+  if value == "south" or value == "s" then return { x = 0, y = 0, z = 1 }, "cardinal" end
+  if value == "east" or value == "e" then return { x = 1, y = 0, z = 0 }, "cardinal" end
+  if value == "west" or value == "w" then return { x = -1, y = 0, z = 0 }, "cardinal" end
+end
+
+local function headingFromYaw(config, yaw, source)
+  yaw = tonumber(yaw)
+  if not yaw then return nil end
+  local orientation = type(config.orientation) == "table" and config.orientation or {}
+  yaw = yaw + (tonumber(orientation.yawOffset) or 0)
+  local format = tostring(orientation.yawFormat or "avionics"):lower()
+  local radians = math.rad(yaw)
+  if format == "avionics" or format == "south" or format == "south-zero" then
+    return normalizeHorizontal({ x = math.sin(radians), y = 0, z = math.cos(radians) }), source or "heading"
+  end
+  if format == "compass" or format == "bearing" then
+    return normalizeHorizontal({ x = math.sin(radians), y = 0, z = -math.cos(radians) }), source or "bearing"
+  end
+  return normalizeHorizontal({ x = -math.sin(radians), y = 0, z = math.cos(radians) }), source or "yaw"
+end
+
+local function headingFromOrientationValue(config, value, source)
+  local poseHeading, poseSource = headingFromPose(config, value)
+  if poseHeading then return poseHeading, source and (source .. ":" .. poseSource) or poseSource end
+  local vector = extractVector(value)
+  vector = normalizeHorizontal(vector)
+  if vector then return vector, source and (source .. "-vector") or "orientation-vector" end
+  local cardinal, cardinalSource = headingFromCardinal(value)
+  if cardinal then return cardinal, source and (source .. ":" .. cardinalSource) or cardinalSource end
+  if type(value) == "number" then return headingFromYaw(config, value, source or "yaw") end
+  if type(value) == "table" then
+    for _, key in ipairs({ "yaw", "heading", "bearing", "angle", "rotation" }) do
+      local heading, headingSource = headingFromYaw(config, value[key], source and (source .. ":" .. key) or key)
+      if heading then return heading, headingSource end
+    end
+    for _, key in ipairs({ "facing", "direction", "cardinal" }) do
+      local heading, headingSource = headingFromCardinal(value[key])
+      if heading then return heading, source and (source .. ":" .. headingSource) or headingSource end
+    end
+  end
+end
+
+local function callPeripheral(name, method)
+  if not name then return nil end
+  local ok, value = pcall(peripheral.call, name, method)
+  if ok then return value end
+end
+
+local function avionicsNames(config)
+  return {
+    navigationTable = findPeripheralByType("navigationTablePeripheral", config, "navigation_table"),
+    gimbalSensor = findPeripheralByType("gimbalSensorPeripheral", config, "gimbal_sensor"),
+    altitudeSensor = findPeripheralByType("altitudeSensorPeripheral", config, "altitude_sensor"),
+    physicsAssembler = findPeripheralByType("physicsAssemblerPeripheral", config, "physics_assembler"),
+    velocitySensors = findPeripheralsByType("velocity_sensor"),
+  }
+end
+
+local function avionicsSnapshot(config)
+  local names = avionicsNames(config)
+  local state = { names = names }
+  if names.navigationTable then
+    state.navigationTable = names.navigationTable
+    state.navHeading = callPeripheral(names.navigationTable, "getHeading")
+    state.navHeadingRad = callPeripheral(names.navigationTable, "getHeadingRad")
+    state.navOrientation = callPeripheral(names.navigationTable, "getOrientation")
+    if state.navHeading ~= nil then
+      state.heading, state.headingSource = headingFromYaw(config, state.navHeading, "navigation_table.getHeading")
+    elseif state.navHeadingRad ~= nil then
+      state.heading, state.headingSource = headingFromYaw(config, math.deg(tonumber(state.navHeadingRad) or 0), "navigation_table.getHeadingRad")
+    else
+      state.heading, state.headingSource = headingFromOrientationValue(config, state.navOrientation, "navigation_table.getOrientation")
+    end
+  end
+  if names.gimbalSensor then
+    state.gimbalSensor = names.gimbalSensor
+    state.gimbalAngles = callPeripheral(names.gimbalSensor, "getAngles")
+    state.gimbalAngularRates = callPeripheral(names.gimbalSensor, "getAngularRates")
+    state.gravity = callPeripheral(names.gimbalSensor, "getGravity")
+    state.linearAcceleration = callPeripheral(names.gimbalSensor, "getLinearAcceleration")
+  end
+  if names.altitudeSensor then
+    state.altitudeSensor = names.altitudeSensor
+    state.altitude = callPeripheral(names.altitudeSensor, "getHeight")
+    state.verticalSpeed = callPeripheral(names.altitudeSensor, "getVerticalSpeed")
+  end
+  if names.physicsAssembler then
+    state.physicsAssembler = names.physicsAssembler
+    state.assemblerMass = callPeripheral(names.physicsAssembler, "getMass")
+    state.centerOfMass = callPeripheral(names.physicsAssembler, "getCenterOfMass")
+    state.subLevelId = callPeripheral(names.physicsAssembler, "getSubLevelId")
+    state.subLevelName = callPeripheral(names.physicsAssembler, "getSubLevelName")
+  end
+  local bodyVelocity = {}
+  for _, name in ipairs(names.velocitySensors or {}) do
+    local axis = callPeripheral(name, "getAxis")
+    local value = callPeripheral(name, "getVelocity")
+    if axis and value ~= nil then bodyVelocity[tostring(axis):lower()] = value end
+  end
+  if bodyVelocity.x or bodyVelocity.y or bodyVelocity.z then state.bodyVelocity = bodyVelocity end
+  return state
+end
+
+local function orientationHeading(config, name)
+  if not name then return nil end
+  for _, method in ipairs({ "getLogicalPose", "getPose", "getOrientation", "getRotation", "getFacing", "getDirection", "getYaw", "getHeading", "getBearing" }) do
+    local ok, value = pcall(peripheral.call, name, method)
+    if ok and value ~= nil then
+      local heading, source = headingFromOrientationValue(config, value, method)
+      if heading then return heading, source, value end
+    end
+  end
+end
+
 local function headingFromVelocity(velocity, minimumSpeed)
   local vector = extractVector(velocity)
   if not vector then return nil end
@@ -547,35 +726,25 @@ gpsFix = function(config)
   return { position = position, velocity = velocity, rawPosition = position }
 end
 
-local function snapshot(config)
-  local name = telemetryName(config)
-  local target = loadTarget()
-  local waypoints, names = waypointList()
-  local schedules, scheduleNames = scheduleList()
-  local activeSchedule = loadActiveSchedule()
-  local mode = loadMode().mode or "standby"
-  if not name then
-    local fix, gpsErr = gpsFix(config)
-    if fix then
-      return {
-        version = VERSION,
-        telemetry = true,
-        source = "gps",
-        rawPosition = fix.rawPosition,
-        position = fix.position,
-        velocity = fix.velocity,
-        target = target,
-        distanceToTarget = distance(fix.position, target),
-        waypoints = waypoints,
-        waypointNames = names,
-        schedules = schedules,
-        scheduleNames = scheduleNames,
-        activeSchedule = activeSchedule,
-        mode = mode,
-      }
-    end
-    return { version = VERSION, telemetry = false, source = "none", gpsError = gpsErr, target = target, waypoints = waypoints, waypointNames = names, schedules = schedules, scheduleNames = scheduleNames, activeSchedule = activeSchedule, mode = mode }
-  end
+local function sublevelSnapshot(config)
+  if not sublevelAvailable(config) then return nil end
+  local pose = callSublevel("getLogicalPose") or callSublevel("getLastPose")
+  return {
+    available = true,
+    pose = pose,
+    rawPosition = pose,
+    position = extractVector(pose),
+    velocity = extractVector(callSublevel("getLinearVelocity") or callSublevel("getVelocity")),
+    angularVelocity = callSublevel("getAngularVelocity"),
+    centerOfMass = callSublevel("getCenterOfMass"),
+    mass = callSublevel("getMass"),
+    subLevelId = callSublevel("getUniqueId"),
+    subLevelName = callSublevel("getName"),
+  }
+end
+
+local function legacyPeripheralSnapshot(name)
+  if not name then return nil end
   local pose = callFirst(name, { "getLogicalPose", "getPose" })
   local position = extractVector(pose)
   local rawPosition
@@ -583,8 +752,6 @@ local function snapshot(config)
   if not position then position, rawPosition = coordinateVector(name) end
   local velocity, rawVelocity = callVector(name, { "getLinearVelocity", "getVelocity", "getShipVelocity" })
   return {
-    version = VERSION,
-    telemetry = true,
     peripheral = name,
     pose = pose,
     rawPosition = rawPosition,
@@ -593,6 +760,70 @@ local function snapshot(config)
     velocity = velocity,
     angularVelocity = callFirst(name, { "getAngularVelocity" }),
     mass = callFirst(name, { "getMass" }),
+  }
+end
+
+local function snapshot(config)
+  local name = telemetryName(config)
+  local subState = sublevelSnapshot(config)
+  local legacyState = legacyPeripheralSnapshot(name)
+  local avionicsState = avionicsSnapshot(config)
+  local orientationPeripheral = orientationName(config, name) or (avionicsState and avionicsState.navigationTable)
+  local target = loadTarget()
+  local waypoints, names = waypointList()
+  local schedules, scheduleNames = scheduleList()
+  local activeSchedule = loadActiveSchedule()
+  local mode = loadMode().mode or "standby"
+  local heading, headingSource, rawOrientation = orientationHeading(config, orientationPeripheral)
+  if avionicsState and avionicsState.heading then
+    heading, headingSource, rawOrientation = avionicsState.heading, avionicsState.headingSource, avionicsState.navOrientation or avionicsState.navHeading
+  end
+  local position = (subState and subState.position) or (legacyState and legacyState.position)
+  local velocity = (subState and subState.velocity) or (legacyState and legacyState.velocity)
+  local gpsData, gpsErr
+  if not position or not velocity then gpsData, gpsErr = gpsFix(config) end
+  position = position or (gpsData and gpsData.position)
+  velocity = velocity or (gpsData and gpsData.velocity)
+  if position and avionicsState and tonumber(avionicsState.altitude) then
+    position = { x = position.x, y = tonumber(avionicsState.altitude), z = position.z }
+  end
+  if velocity and avionicsState and tonumber(avionicsState.verticalSpeed) then
+    velocity = { x = velocity.x, y = tonumber(avionicsState.verticalSpeed), z = velocity.z }
+  end
+  local pose = (subState and subState.pose) or (legacyState and legacyState.pose)
+  if not heading then heading, headingSource = headingFromPose(config, pose) end
+  local source = subState and "sublevel" or (legacyState and legacyState.peripheral) or (gpsData and "gps") or "none"
+  return {
+    version = VERSION,
+    telemetry = position ~= nil or heading ~= nil,
+    source = source,
+    peripheral = legacyState and legacyState.peripheral,
+    sublevel = subState and subState.available or false,
+    orientationPeripheral = orientationPeripheral,
+    navigationTable = avionicsState and avionicsState.navigationTable,
+    gimbalSensor = avionicsState and avionicsState.gimbalSensor,
+    altitudeSensor = avionicsState and avionicsState.altitudeSensor,
+    physicsAssembler = avionicsState and avionicsState.physicsAssembler,
+    pose = pose,
+    rawOrientation = rawOrientation,
+    heading = heading,
+    headingSource = headingSource,
+    rawPosition = (subState and subState.rawPosition) or (legacyState and legacyState.rawPosition) or (gpsData and gpsData.rawPosition),
+    position = position,
+    rawVelocity = legacyState and legacyState.rawVelocity,
+    velocity = velocity,
+    bodyVelocity = avionicsState and avionicsState.bodyVelocity,
+    angularVelocity = (subState and subState.angularVelocity) or (legacyState and legacyState.angularVelocity) or (avionicsState and avionicsState.gimbalAngularRates),
+    gimbalAngles = avionicsState and avionicsState.gimbalAngles,
+    gravity = avionicsState and avionicsState.gravity,
+    linearAcceleration = avionicsState and avionicsState.linearAcceleration,
+    altitude = avionicsState and avionicsState.altitude,
+    verticalSpeed = avionicsState and avionicsState.verticalSpeed,
+    centerOfMass = (subState and subState.centerOfMass) or (avionicsState and avionicsState.centerOfMass),
+    mass = (subState and subState.mass) or (legacyState and legacyState.mass) or (avionicsState and avionicsState.assemblerMass),
+    subLevelId = (subState and subState.subLevelId) or (avionicsState and avionicsState.subLevelId),
+    subLevelName = (subState and subState.subLevelName) or (avionicsState and avionicsState.subLevelName),
+    gpsError = gpsErr,
     target = target,
     distanceToTarget = distance(position, target),
     waypoints = waypoints,
@@ -780,10 +1011,20 @@ local function status(config)
   print("CC-NavTool " .. VERSION)
   print("Telemetry: " .. (state.telemetry and "online" or "not found"))
   print("Source: " .. tostring(state.source or state.peripheral or "unknown"))
+  print("Sublevel API: " .. tostring(state.sublevel))
   if state.peripheral then print("Peripheral: " .. state.peripheral) end
   if state.peripheral then print("Methods: " .. table.concat(methods(state.peripheral), ", ")) end
+  if state.orientationPeripheral then print("Orientation peripheral: " .. state.orientationPeripheral) end
+  if state.navigationTable then print("Navigation table: " .. state.navigationTable) end
+  if state.gimbalSensor then print("Gimbal sensor: " .. state.gimbalSensor) end
+  if state.altitudeSensor then print("Altitude sensor: " .. state.altitudeSensor) end
+  if state.physicsAssembler then print("Physics assembler: " .. state.physicsAssembler) end
   print("Position: " .. shortText(state.position))
   print("Velocity: " .. shortText(state.velocity))
+  print("Body velocity: " .. shortText(state.bodyVelocity))
+  print("Heading: " .. shortText(state.heading) .. " via " .. tostring(state.headingSource or "unknown"))
+  print("Attitude: " .. shortText(state.gimbalAngles))
+  print("Altitude: " .. shortText(state.altitude) .. " vertical " .. shortText(state.verticalSpeed))
   if state.telemetry and not state.position then print("Raw position: " .. shortText(state.rawPosition or state.pose)) end
   if state.telemetry and not state.velocity then print("Raw velocity: " .. shortText(state.rawVelocity)) end
   if state.gpsError then print("GPS: " .. tostring(state.gpsError)) end
@@ -797,8 +1038,27 @@ end
 
 local function diagnose(config)
   print("CC-NavTool telemetry diagnostics")
+  print("CC:Sable sublevel available: " .. tostring(sublevelAvailable(config)))
   print("Configured telemetryPeripheral: " .. tostring(config.telemetryPeripheral))
+  print("Configured orientationPeripheral: " .. tostring(config.orientationPeripheral))
+  print("Configured navigationTablePeripheral: " .. tostring(config.navigationTablePeripheral))
+  print("Configured gimbalSensorPeripheral: " .. tostring(config.gimbalSensorPeripheral))
+  print("Configured altitudeSensorPeripheral: " .. tostring(config.altitudeSensorPeripheral))
+  print("Configured physicsAssemblerPeripheral: " .. tostring(config.physicsAssemblerPeripheral))
   print("Detected telemetryPeripheral: " .. tostring(telemetryName(config)))
+  print("Detected orientationPeripheral: " .. tostring(orientationName(config, telemetryName(config))))
+  local avionics = avionicsNames(config)
+  print("Detected navigation_table: " .. tostring(avionics.navigationTable))
+  print("Detected gimbal_sensor: " .. tostring(avionics.gimbalSensor))
+  print("Detected altitude_sensor: " .. tostring(avionics.altitudeSensor))
+  print("Detected physics_assembler: " .. tostring(avionics.physicsAssembler))
+  print("Detected velocity_sensor count: " .. tostring(#(avionics.velocitySensors or {})))
+  if sublevelAvailable(config) then
+    print("Sublevel pose: " .. shortText(callSublevel("getLogicalPose") or callSublevel("getLastPose")))
+    print("Sublevel velocity: " .. shortText(callSublevel("getLinearVelocity") or callSublevel("getVelocity")))
+    print("Sublevel angular velocity: " .. shortText(callSublevel("getAngularVelocity")))
+    print("Sublevel mass: " .. shortText(callSublevel("getMass")))
+  end
   local fix, gpsErr = gpsFix(config)
   print("GPS position: " .. shortText(fix and fix.position))
   print("GPS velocity: " .. shortText(fix and fix.velocity))
@@ -807,6 +1067,9 @@ local function diagnose(config)
   local candidates = {
     "getLogicalPose", "getPose", "getPosition", "getShipPosition", "getWorldPosition", "getBlockPosition",
     "getLinearVelocity", "getVelocity", "getShipVelocity", "getAngularVelocity", "getMass",
+    "getOrientation", "getRotation", "getFacing", "getDirection", "getYaw", "getHeading", "getHeadingRad", "getBearing", "getBearingRad",
+    "getAngles", "getAnglesRad", "getAngularRates", "getAngularRatesRad", "getGravity", "getLinearAcceleration",
+    "getHeight", "getVerticalSpeed", "getAirPressure", "getAxis", "getCenterOfMass", "getSubLevelId", "getSubLevelName",
     "getX", "getY", "getZ", "getWorldX", "getWorldY", "getWorldZ", "getShipX", "getShipY", "getShipZ",
   }
   for _, name in ipairs(peripheral.getNames()) do
@@ -832,6 +1095,10 @@ local function diagnose(config)
   local state = snapshot(config)
   print("Normalized position: " .. shortText(state.position))
   print("Normalized velocity: " .. shortText(state.velocity))
+  print("Normalized body velocity: " .. shortText(state.bodyVelocity))
+  print("Normalized heading: " .. shortText(state.heading) .. " via " .. tostring(state.headingSource or "unknown"))
+  print("Normalized attitude: " .. shortText(state.gimbalAngles))
+  print("Normalized altitude: " .. shortText(state.altitude))
 end
 
 local function scaledStrength(config, outputName, ratio)
@@ -885,7 +1152,8 @@ local function automationOutputs(config, state)
     if horizontal and horizontal > thrustStartDistance then
       local forwardRatio = math.min(1, horizontal / thrustFullDistance)
       local targetHeading = normalizeHorizontal({ x = (tonumber(state.target.x) or state.position.x) - state.position.x, z = (tonumber(state.target.z) or state.position.z) - state.position.z })
-      local heading, headingSource = headingFromPose(config, state.pose)
+      local heading, headingSource = state.heading, state.headingSource
+      if not heading then heading, headingSource = headingFromPose(config, state.pose) end
       if not heading then heading, headingSource = headingFromVelocity(state.velocity, headingMinimumSpeed) end
       if heading and targetHeading then
         local turn = heading.z * targetHeading.x - heading.x * targetHeading.z
@@ -1135,7 +1403,7 @@ local function drawInterface(config, target, menu, state)
   line(target, 4, 8, "Mode: ", state.mode or "standby")
   line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", vectorText(state.position))
   line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(state.velocity))
-  line(target, math.max(28, math.floor(width / 2)), 6, "Mass: ", state.mass)
+  line(target, math.max(28, math.floor(width / 2)), 6, "Heading: ", vectorText(state.heading))
   line(target, math.max(28, math.floor(width / 2)), 7, "Waypoints: ", #(state.waypointNames or {}))
   line(target, math.max(28, math.floor(width / 2)), 8, "Schedules: ", #(state.scheduleNames or {}))
   drawButtonRow(target, {
@@ -1199,12 +1467,14 @@ local function showDetails(config, target)
   line(target, 2, 6, "Mode: ", state.mode or "standby")
   line(target, 2, 7, "Position: ", vectorText(state.position))
   line(target, 2, 8, "Velocity: ", vectorText(state.velocity))
-  line(target, 2, 9, "Angular velocity: ", compact(state.angularVelocity))
-  line(target, 2, 10, "Mass: ", state.mass)
-  line(target, 2, 12, "Network host: ", config.network and config.network.host)
-  line(target, 2, 13, "Channel: ", config.network and (config.network.channel or config.network.protocol))
-  line(target, 2, 14, "Raw pose: ", compact(state.pose))
-  local y = 16
+  line(target, 2, 9, "Heading: ", vectorText(state.heading) .. " via " .. tostring(state.headingSource or "unknown"))
+  line(target, 2, 10, "Orientation peripheral: ", state.orientationPeripheral or "none")
+  line(target, 2, 11, "Angular velocity: ", compact(state.angularVelocity))
+  line(target, 2, 12, "Mass: ", state.mass)
+  line(target, 2, 14, "Network host: ", config.network and config.network.host)
+  line(target, 2, 15, "Channel: ", config.network and (config.network.channel or config.network.protocol))
+  line(target, 2, 16, "Raw orientation: ", compact(state.rawOrientation or state.pose))
+  local y = 18
   for _, name in ipairs(state.waypointNames or {}) do
     if y >= height - 3 then break end
     line(target, 2, y, "WP " .. name .. ": ", targetText(state.waypoints[name]))

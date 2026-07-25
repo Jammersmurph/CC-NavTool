@@ -1,7 +1,13 @@
 return {
   onboardingComplete = false,
   updateInterval = 0.10,
+  sublevelEnabled = true,
   telemetryPeripheral = nil,
+  orientationPeripheral = nil,
+  navigationTablePeripheral = nil,
+  gimbalSensorPeripheral = nil,
+  altitudeSensorPeripheral = nil,
+  physicsAssemblerPeripheral = nil,
   monitorPeripheral = nil,
   gps = {
     enabled = true,
@@ -37,6 +43,8 @@ return {
   orientation = {
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
+    yawFormat = "avionics",
+    yawOffset = 0,
   },
   network = {
     enabled = false,
