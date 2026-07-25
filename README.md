@@ -81,7 +81,7 @@ Current implemented foundations:
 * Rednet remote control channel
 * Emergency output clearing
 
-Important limitation: with GPS-only positioning, heading is inferred from movement direction. The craft cannot know its rotation while stationary unless a real orientation/pose peripheral is available. By default, blind forward thrust is disabled until heading is known. Test with low `safety.maximumOutput` values over an empty area.
+Important limitation: with GPS-only positioning, heading is inferred from movement direction. The craft cannot know its rotation while stationary unless a real orientation/pose peripheral is available. By default, navtool applies a small forward bootstrap while heading is unknown, then steers once GPS velocity provides a course. Test with low `safety.maximumOutput` values over an empty area.
 
 When creating a `navremote` profile, the remote scans the selected Rednet channel for hosted aircraft. The matching `network.sharedKey` from the aircraft config is still required to control that aircraft.
 
