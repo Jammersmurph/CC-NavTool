@@ -4,6 +4,7 @@ local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/
 local FILES = {
   { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
+  { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 
@@ -40,3 +41,4 @@ launcher.write('shell.run("/navremote/navremote.lua", ...)\n')
 launcher.close()
 print("CC-NavTool Remote installed.")
 print("Run: navremote")
+print("Uninstall: navremote uninstall")
