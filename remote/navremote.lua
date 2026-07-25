@@ -497,11 +497,10 @@ local function editConfig()
   sleep(1)
 end
 
-local function drawMenu(target, message, menu)
+local function drawMenu(target, message, menu, data, requestErr)
   buttons = {}
   local connection = activeProfile()
-  local response, requestErr = request("status")
-  local data = response and response.data or {}
+  data = data or {}
   local width, height = target.getSize()
   color(target, colors.black, colors.white)
   target.clear()
@@ -560,7 +559,14 @@ end
 local function menu()
   local target, monitorName = screen()
   local activeMenu
-  drawMenu(target, nil, activeMenu)
+  local statusData = {}
+  local statusErr
+  local function refreshStatus()
+    local response, requestErr = request("status")
+    statusData = response and response.data or statusData or {}
+    statusErr = requestErr
+  end
+  drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
@@ -572,33 +578,33 @@ local function menu()
       x, y = nil, nil
     end
     local action = x and hitButton(x, y)
-    if action == "menu-nav" then activeMenu = activeMenu == "nav" and nil or "nav"; drawMenu(target, nil, activeMenu)
-    elseif action == "menu-library" then activeMenu = activeMenu == "library" and nil or "library"; drawMenu(target, nil, activeMenu)
-    elseif action == "menu-system" then activeMenu = activeMenu == "system" and nil or "system"; drawMenu(target, nil, activeMenu)
-    elseif action == "status" then local _, height = target.getSize(); showStatus(target); writeAt(target, 2, height, "Touch anywhere to return."); os.pullEvent(); drawMenu(target, nil, activeMenu)
-    elseif action == "refresh" then drawMenu(target, nil, activeMenu)
-    elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); drawMenu(target, nil, activeMenu)
+    if action == "menu-nav" then activeMenu = activeMenu == "nav" and nil or "nav"; drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "menu-library" then activeMenu = activeMenu == "library" and nil or "library"; drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "menu-system" then activeMenu = activeMenu == "system" and nil or "system"; drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "status" then local _, height = target.getSize(); showStatus(target); writeAt(target, 2, height, "Touch anywhere to return."); os.pullEvent(); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "refresh" then refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "waypoints" then waypointManager(target)
     elseif action == "schedules" then scheduleManager(target)
     elseif action == "profiles" then profileManager(target)
-    elseif action == "wp-add" then local previous = term.redirect(target); saveWaypoint(); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "wp-goto" then local previous = term.redirect(target); waypointNamePrompt("goto-waypoint"); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "wp-delete" then local previous = term.redirect(target); waypointNamePrompt("delete-waypoint"); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "sch-add" then local previous = term.redirect(target); createSchedule(); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "sch-run" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "sch-delete" then local previous = term.redirect(target); scheduleNamePrompt("delete-schedule"); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "sch-stop" then local ok, e = request("stop-schedule"); drawMenu(target, ok and "Schedule stopped." or e, activeMenu)
-    elseif action == "automate" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "profile-add" then local previous = term.redirect(target); addProfile(); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "profile-select" then local previous = term.redirect(target); selectProfilePrompt(); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "profile-delete" then local previous = term.redirect(target); deleteProfilePrompt(); term.redirect(previous); drawMenu(target, nil, activeMenu)
-    elseif action == "back" then drawMenu(target, nil, activeMenu)
-    elseif action == "mode-nav" then drawMenu(target, setMode("navigate") or "Mode set to navigate.", activeMenu)
-    elseif action == "mode-hover" then drawMenu(target, setMode("hover") or "Mode set to hover.", activeMenu)
-    elseif action == "mode-standby" then drawMenu(target, setMode("standby") or "Mode set to standby.", activeMenu)
-    elseif action == "clear" then local ok, e = request("clear-target"); drawMenu(target, ok and "Destination cleared." or e, activeMenu)
-    elseif action == "stop" then local ok, e = request("outputs-off"); drawMenu(target, ok and "Aircraft outputs cleared." or e, activeMenu)
-    elseif action == "config" then editConfig(); drawMenu(target, nil, activeMenu)
+    elseif action == "wp-add" then local previous = term.redirect(target); saveWaypoint(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "wp-goto" then local previous = term.redirect(target); waypointNamePrompt("goto-waypoint"); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "wp-delete" then local previous = term.redirect(target); waypointNamePrompt("delete-waypoint"); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "sch-add" then local previous = term.redirect(target); createSchedule(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "sch-run" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "sch-delete" then local previous = term.redirect(target); scheduleNamePrompt("delete-schedule"); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "sch-stop" then local ok, e = request("stop-schedule"); if ok then refreshStatus() end; drawMenu(target, ok and "Schedule stopped." or e, activeMenu, statusData, statusErr)
+    elseif action == "automate" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "profile-add" then local previous = term.redirect(target); addProfile(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "profile-select" then local previous = term.redirect(target); selectProfilePrompt(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "profile-delete" then local previous = term.redirect(target); deleteProfilePrompt(); term.redirect(previous); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "back" then drawMenu(target, nil, activeMenu, statusData, statusErr)
+    elseif action == "mode-nav" then local err = setMode("navigate"); if not err then statusData.mode = "navigate" end; drawMenu(target, err or "Mode set to navigate.", activeMenu, statusData, statusErr)
+    elseif action == "mode-hover" then local err = setMode("hover"); if not err then statusData.mode = "hover" end; drawMenu(target, err or "Mode set to hover.", activeMenu, statusData, statusErr)
+    elseif action == "mode-standby" then local err = setMode("standby"); if not err then statusData.mode = "standby" end; drawMenu(target, err or "Mode set to standby.", activeMenu, statusData, statusErr)
+    elseif action == "clear" then local ok, e = request("clear-target"); if ok then statusData.target = nil end; drawMenu(target, ok and "Destination cleared." or e, activeMenu, statusData, statusErr)
+    elseif action == "stop" then local ok, e = request("outputs-off"); if ok then statusData.mode = "standby" end; drawMenu(target, ok and "Aircraft outputs cleared." or e, activeMenu, statusData, statusErr)
+    elseif action == "config" then editConfig(); refreshStatus(); drawMenu(target, nil, activeMenu, statusData, statusErr)
     elseif action == "update" then target.clear(); writeAt(target, 2, 2, "Updating remote..."); shell.run(ROOT .. "/update.lua"); return
     elseif action == "uninstall" then target.clear(); writeAt(target, 2, 2, "Running uninstall..."); shell.run(ROOT .. "/uninstall.lua"); return
     elseif action == "exit" then return end
