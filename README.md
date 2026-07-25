@@ -119,8 +119,7 @@ Planned capabilities include:
 CC-NavTool is being designed around the following mod environment:
 
 * CC:Tweaked
-* Sable
-* CC:Sable
+* Standard CC:Tweaked GPS, or an optional compatible telemetry peripheral
 * Create
 * Create Aeronautics
 * Create Propulsion: Simulated
@@ -133,9 +132,11 @@ Some features may also work with other Create Aeronautics integrations, provided
 
 ## How It Works
 
-CC-NavTool uses CC:Sable to read live craft telemetry.
+CC-NavTool reads position from either a compatible telemetry peripheral or standard CC:Tweaked GPS.
 
-Depending on the installed CC:Sable version, this may include:
+With only a modem attached, you must provide a working CC:Tweaked GPS network. In that setup, `navtool` uses `gps.locate()` for position and estimates velocity from repeated GPS fixes. GPS requires separate fixed GPS host computers/beacons with known coordinates.
+
+If your modpack includes a compatible aircraft telemetry peripheral, it may also provide:
 
 * Logical position
 * Logical orientation
