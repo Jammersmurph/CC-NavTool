@@ -109,7 +109,7 @@ local function telemetryName(config)
   end
   for _, name in ipairs(peripheral.getNames()) do
     local available = methods(name)
-    if has(available, "getLogicalPose") or (has(available, "getLinearVelocity") and has(available, "getAngularVelocity")) then
+    if has(available, "getLogicalPose") or has(available, "getPose") or has(available, "getPosition") or has(available, "getShipPosition") or (has(available, "getX") and has(available, "getY") and has(available, "getZ")) or (has(available, "getLinearVelocity") and has(available, "getAngularVelocity")) then
       return name
     end
   end
@@ -229,9 +229,54 @@ end
 
 local function extractVector(value)
   if type(value) ~= "table" then return nil end
-  local source = value.position or value.pos or value.translation or value
-  local x, y, z = tonumber(source.x or source[1]), tonumber(source.y or source[2]), tonumber(source.z or source[3])
+  local source = value.position or value.pos or value.translation or value.location or value.origin or value.center or value.vector or value
+  if type(source) ~= "table" then return nil end
+  local x = tonumber(source.x or source.X or source[1] or source.xCoord or source.x_coord)
+  local y = tonumber(source.y or source.Y or source[2] or source.yCoord or source.y_coord)
+  local z = tonumber(source.z or source.Z or source[3] or source.zCoord or source.z_coord)
   if x and y and z then return { x = x, y = y, z = z } end
+  for _, nested in ipairs({ "position", "pos", "translation", "location", "origin", "center", "vector" }) do
+    if value[nested] and value[nested] ~= source then
+      local vector = extractVector(value[nested])
+      if vector then return vector end
+    end
+  end
+end
+
+local function callVector(name, candidates)
+  for _, method in ipairs(candidates) do
+    local ok, a, b, c = pcall(peripheral.call, name, method)
+    if ok and a ~= nil then
+      if b ~= nil and c ~= nil and tonumber(a) and tonumber(b) and tonumber(c) then
+        return { x = tonumber(a), y = tonumber(b), z = tonumber(c) }, { a, b, c }
+      end
+      local vector = extractVector(a)
+      if vector then return vector, a end
+      return nil, a
+    end
+  end
+end
+
+local function coordinateVector(name)
+  local values = {}
+  local keys = {
+    x = { "getX", "getWorldX", "getShipX" },
+    y = { "getY", "getWorldY", "getShipY" },
+    z = { "getZ", "getWorldZ", "getShipZ" },
+  }
+  for axis, candidates in pairs(keys) do
+    values[axis] = callFirst(name, candidates)
+  end
+  if tonumber(values.x) and tonumber(values.y) and tonumber(values.z) then
+    return { x = tonumber(values.x), y = tonumber(values.y), z = tonumber(values.z) }, values
+  end
+  return nil, values
+end
+
+local function shortText(value)
+  local text = textutils.serialize(value)
+  if #text > 120 then return text:sub(1, 117) .. "..." end
+  return text
 end
 
 local function waypointList()
@@ -384,13 +429,19 @@ local function snapshot(config)
   if not name then return { version = VERSION, telemetry = false, target = target, waypoints = waypoints, waypointNames = names, schedules = schedules, scheduleNames = scheduleNames, activeSchedule = activeSchedule, mode = mode } end
   local pose = callFirst(name, { "getLogicalPose", "getPose" })
   local position = extractVector(pose)
+  local rawPosition
+  if not position then position, rawPosition = callVector(name, { "getPosition", "getShipPosition", "getWorldPosition", "getBlockPosition" }) end
+  if not position then position, rawPosition = coordinateVector(name) end
+  local velocity, rawVelocity = callVector(name, { "getLinearVelocity", "getVelocity", "getShipVelocity" })
   return {
     version = VERSION,
     telemetry = true,
     peripheral = name,
     pose = pose,
+    rawPosition = rawPosition,
     position = position,
-    velocity = callFirst(name, { "getLinearVelocity", "getVelocity" }),
+    rawVelocity = rawVelocity,
+    velocity = velocity,
     angularVelocity = callFirst(name, { "getAngularVelocity" }),
     mass = callFirst(name, { "getMass" }),
     target = target,
@@ -568,6 +619,11 @@ local function status(config)
   print("CC-NavTool " .. VERSION)
   print("Telemetry: " .. (state.telemetry and "online" or "not found"))
   if state.peripheral then print("Peripheral: " .. state.peripheral) end
+  if state.peripheral then print("Methods: " .. table.concat(methods(state.peripheral), ", ")) end
+  print("Position: " .. shortText(state.position))
+  print("Velocity: " .. shortText(state.velocity))
+  if state.telemetry and not state.position then print("Raw position: " .. shortText(state.rawPosition or state.pose)) end
+  if state.telemetry and not state.velocity then print("Raw velocity: " .. shortText(state.rawVelocity)) end
   print("Target: " .. textutils.serialize(state.target))
   print("Mode: " .. tostring(state.mode or "standby"))
   print("Waypoints: " .. tostring(#(state.waypointNames or {})))
@@ -873,13 +929,14 @@ local function showDetails(config, target)
   line(target, 2, 4, "Peripheral: ", state.peripheral or "none")
   line(target, 2, 5, "Target: ", targetText(state.target))
   line(target, 2, 6, "Mode: ", state.mode or "standby")
-  line(target, 2, 7, "Pose: ", compact(state.pose))
-  line(target, 2, 8, "Velocity: ", compact(state.velocity))
+  line(target, 2, 7, "Position: ", vectorText(state.position))
+  line(target, 2, 8, "Velocity: ", vectorText(state.velocity))
   line(target, 2, 9, "Angular velocity: ", compact(state.angularVelocity))
   line(target, 2, 10, "Mass: ", state.mass)
   line(target, 2, 12, "Network host: ", config.network and config.network.host)
   line(target, 2, 13, "Channel: ", config.network and (config.network.channel or config.network.protocol))
-  local y = 15
+  line(target, 2, 14, "Raw pose: ", compact(state.pose))
+  local y = 16
   for _, name in ipairs(state.waypointNames or {}) do
     if y >= height - 3 then break end
     line(target, 2, y, "WP " .. name .. ": ", targetText(state.waypoints[name]))
