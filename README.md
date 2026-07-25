@@ -71,7 +71,8 @@ Current implemented foundations:
 * Coordinate schedules with multiple stops
 * Remote schedule creation, run, delete, and stop
 * Remote manual control with bounded hold-to-pulse output leases
-* `navtool automate` schedule runner
+* `navtool server` runs navigation/hover automation while serving remote commands
+* `navtool automate` standalone schedule runner
 * Conservative redstone output automation for `navigate` and `hover`
 * Multiple `navremote` host profiles with separate hostnames and shared keys
 * Automatic `navremote` discovery of running `navtool server` hosts on Rednet
