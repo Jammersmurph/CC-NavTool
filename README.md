@@ -70,6 +70,7 @@ Current implemented foundations:
 * Saved waypoints
 * Coordinate schedules with multiple stops
 * Remote schedule creation, run, delete, and stop
+* Remote manual control with bounded hold-to-pulse output leases
 * `navtool automate` schedule runner
 * Conservative redstone output automation for `navigate` and `hover`
 * Multiple `navremote` host profiles with separate hostnames and shared keys
