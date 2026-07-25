@@ -6,8 +6,15 @@ return {
   monitorPeripheral = nil,
   safety = {
     maximumOutput = 5,
+    maximumRemotePulse = 2.0,
     disengageOnTelemetryLoss = true,
     clearOutputsOnExit = true,
+  },
+  network = {
+    enabled = true,
+    protocol = "cc-navtool",
+    host = "navtool-aircraft",
+    sharedKey = "change-me", -- CHANGE THIS on both aircraft and pocket computer.
   },
   navigation = {
     cruiseSpeed = 12,
