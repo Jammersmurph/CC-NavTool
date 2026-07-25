@@ -244,6 +244,65 @@ local function extractVector(value)
   end
 end
 
+local function normalizeHorizontal(vector)
+  if type(vector) ~= "table" then return nil end
+  local x, z = tonumber(vector.x), tonumber(vector.z)
+  if not x or not z then return nil end
+  local length = math.sqrt(x * x + z * z)
+  if length < 0.0001 then return nil end
+  return { x = x / length, y = 0, z = z / length }
+end
+
+local function extractQuaternion(value)
+  if type(value) ~= "table" then return nil end
+  local source = value.rotation or value.orientation or value.quaternion or value.rot or value
+  if type(source) ~= "table" then return nil end
+  local w = tonumber(source.w or source.W or source[4] or source.qw)
+  local x = tonumber(source.x or source.X or source[1] or source.qx)
+  local y = tonumber(source.y or source.Y or source[2] or source.qy)
+  local z = tonumber(source.z or source.Z or source[3] or source.qz)
+  if not w or not x or not y or not z then return nil end
+  local length = math.sqrt(w * w + x * x + y * y + z * z)
+  if length < 0.0001 then return nil end
+  return { w = w / length, x = x / length, y = y / length, z = z / length }
+end
+
+local function rotateByQuaternion(vector, q)
+  local x, y, z = tonumber(vector.x) or 0, tonumber(vector.y) or 0, tonumber(vector.z) or 0
+  local qx, qy, qz, qw = q.x, q.y, q.z, q.w
+  local ix = qw * x + qy * z - qz * y
+  local iy = qw * y + qz * x - qx * z
+  local iz = qw * z + qx * y - qy * x
+  local iw = -qx * x - qy * y - qz * z
+  return {
+    x = ix * qw + iw * -qx + iy * -qz - iz * -qy,
+    y = iy * qw + iw * -qy + iz * -qx - ix * -qz,
+    z = iz * qw + iw * -qz + ix * -qy - iy * -qx,
+  }
+end
+
+local function headingFromPose(config, pose)
+  if type(pose) ~= "table" then return nil end
+  local direct = extractVector(pose.forward or pose.facing or pose.direction or (type(pose.rotation) == "table" and (pose.rotation.forward or pose.rotation.facing or pose.rotation.direction)))
+  direct = normalizeHorizontal(direct)
+  if direct then return direct, "pose-vector" end
+  local q = extractQuaternion(pose)
+  if q then
+    local orientation = type(config.orientation) == "table" and config.orientation or {}
+    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = -1 }
+    local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
+    if rotated then return rotated, "pose-quaternion" end
+  end
+end
+
+local function headingFromVelocity(velocity, minimumSpeed)
+  local vector = extractVector(velocity)
+  if not vector then return nil end
+  local horizontal = math.sqrt((tonumber(vector.x) or 0) ^ 2 + (tonumber(vector.z) or 0) ^ 2)
+  if horizontal < (tonumber(minimumSpeed) or 0.25) then return nil end
+  return normalizeHorizontal(vector), "velocity"
+end
+
 local function callVector(name, candidates)
   for _, method in ipairs(candidates) do
     local ok, a, b, c = pcall(peripheral.call, name, method)
@@ -756,6 +815,11 @@ local function automationOutputs(config, state)
   local verticalScale = tonumber(automation.verticalScale) or 12
   local thrustStartDistance = tonumber(automation.thrustStartDistance) or navigation.arrivalRadius or 5
   local thrustFullDistance = tonumber(automation.thrustFullDistance) or navigation.slowdownRadius or 50
+  local steeringDeadband = tonumber(automation.steeringDeadband) or 0.12
+  local steeringScale = tonumber(automation.steeringScale) or 0.8
+  local headingMinimumSpeed = tonumber(automation.headingMinimumSpeed) or 0.25
+  local headingUnknownForwardRatio = tonumber(automation.headingUnknownForwardRatio) or 0
+  local steeringInvert = automation.steeringInvert == true
   if mode == "standby" then
     notes[#notes + 1] = "standby"
     return outputs, notes
@@ -777,7 +841,26 @@ local function automationOutputs(config, state)
     end
     local horizontal = horizontalDistance(state.position, state.target)
     if horizontal and horizontal > thrustStartDistance then
-      outputs.forward = scaledStrength(config, "forward", math.min(1, horizontal / thrustFullDistance))
+      local forwardRatio = math.min(1, horizontal / thrustFullDistance)
+      local targetHeading = normalizeHorizontal({ x = (tonumber(state.target.x) or state.position.x) - state.position.x, z = (tonumber(state.target.z) or state.position.z) - state.position.z })
+      local heading, headingSource = headingFromPose(config, state.pose)
+      if not heading then heading, headingSource = headingFromVelocity(state.velocity, headingMinimumSpeed) end
+      if heading and targetHeading then
+        local turn = heading.z * targetHeading.x - heading.x * targetHeading.z
+        local alignment = math.max(0, math.min(1, heading.x * targetHeading.x + heading.z * targetHeading.z))
+        if steeringInvert then turn = -turn end
+        if math.abs(turn) > steeringDeadband then
+          local strength = scaledStrength(config, turn > 0 and "left" or "right", math.min(1, math.abs(turn) / steeringScale))
+          if turn > 0 then outputs.left = strength else outputs.right = strength end
+        end
+        outputs.forward = scaledStrength(config, "forward", forwardRatio * alignment)
+        notes[#notes + 1] = string.format("turn %.2f align %.2f via %s", turn, alignment, headingSource or "unknown")
+      else
+        if headingUnknownForwardRatio > 0 then
+          outputs.forward = scaledStrength(config, "forward", forwardRatio * math.max(0, math.min(1, headingUnknownForwardRatio)))
+        end
+        notes[#notes + 1] = "heading unknown"
+      end
     end
     notes[#notes + 1] = string.format("alt %.1f", altitudeError)
     notes[#notes + 1] = horizontal and string.format("horizontal %.1f", horizontal) or "horizontal unknown"

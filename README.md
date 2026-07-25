@@ -72,6 +72,7 @@ Current implemented foundations:
 * Remote schedule creation, run, delete, and stop
 * Remote manual control with bounded hold-to-pulse output leases
 * `navtool server` runs navigation/hover automation while serving remote commands
+* Heading steering through left/right outputs using pose orientation when available, or GPS velocity while moving
 * `navtool automate` standalone schedule runner
 * Conservative redstone output automation for `navigate` and `hover`
 * Multiple `navremote` host profiles with separate hostnames and shared keys
@@ -79,7 +80,7 @@ Current implemented foundations:
 * Rednet remote control channel
 * Emergency output clearing
 
-Important limitation: `navtool automate` can now apply bounded redstone outputs, but it does not yet perform full heading/orientation steering. Test with low `safety.maximumOutput` values over an empty area.
+Important limitation: with GPS-only positioning, heading is inferred from movement direction. The craft cannot know its rotation while stationary unless a real orientation/pose peripheral is available. By default, blind forward thrust is disabled until heading is known. Test with low `safety.maximumOutput` values over an empty area.
 
 When creating a `navremote` profile, the remote scans the selected Rednet channel for hosted aircraft. The matching `network.sharedKey` from the aircraft config is still required to control that aircraft.
 
