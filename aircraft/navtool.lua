@@ -706,13 +706,26 @@ end
 
 local function drawButton(target, id, label, x1, y1, x2, y2, background)
   buttons[id] = { x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+  local width = x2 - x1 + 1
+  if #label > width then label = label:sub(1, width) end
   color(target, background or colors.gray, colors.white)
   for y = y1, y2 do
     target.setCursorPos(x1, y)
     target.write(string.rep(" ", x2 - x1 + 1))
   end
-  writeAt(target, x1 + math.floor((x2 - x1 + 1 - #label) / 2), y1 + math.floor((y2 - y1) / 2), label)
+  writeAt(target, x1 + math.floor((width - #label) / 2), y1 + math.floor((y2 - y1) / 2), label)
   color(target, colors.black, colors.white)
+end
+
+local function drawButtonRow(target, items, y, x1, x2)
+  local width = x2 - x1 + 1
+  local gap = 1
+  local buttonWidth = math.max(1, math.floor((width - gap * (#items - 1)) / #items))
+  for index, item in ipairs(items) do
+    local left = x1 + (index - 1) * (buttonWidth + gap)
+    local right = index == #items and x2 or math.min(x2, left + buttonWidth - 1)
+    drawButton(target, item[1], item[2], left, y, right, y, item[3])
+  end
 end
 
 local function hitButton(x, y)
@@ -741,7 +754,7 @@ local function targetText(target)
   return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
 end
 
-local function drawInterface(config, target)
+local function drawInterface(config, target, menu)
   buttons = {}
   local state = snapshot(config)
   local width, height = target.getSize()
@@ -763,25 +776,47 @@ local function drawInterface(config, target)
   line(target, math.max(28, math.floor(width / 2)), 6, "Mass: ", state.mass)
   line(target, math.max(28, math.floor(width / 2)), 7, "Waypoints: ", #(state.waypointNames or {}))
   line(target, math.max(28, math.floor(width / 2)), 8, "Schedules: ", #(state.scheduleNames or {}))
-  local left = 2
-  local right = math.max(18, math.floor(width / 2) - 1)
-  local farLeft = right + 2
-  local farRight = width - 2
-  drawButton(target, "refresh", "REFRESH", left, 10, right, 10, colors.blue)
-  drawButton(target, "details", "DETAILS", farLeft, 10, farRight, 10, colors.lightBlue)
-  drawButton(target, "target", "SET TARGET", left, 11, right, 11, colors.green)
-  drawButton(target, "waypoint", "SAVE WP", farLeft, 11, farRight, 11, colors.lime)
-  drawButton(target, "schedule", "NEW SCHED", left, 12, right, 12, colors.green)
-  drawButton(target, "run-schedule", "RUN SCHED", farLeft, 12, farRight, 12, colors.cyan)
-  drawButton(target, "automate", "AUTOMATE", left, 13, right, 13, colors.cyan)
-  drawButton(target, "server", "START SERVER", farLeft, 13, farRight, 13, colors.lime)
-  drawButton(target, "mode-nav", "NAV MODE", left, 14, right, 14, colors.cyan)
-  drawButton(target, "standby", "STANDBY", farLeft, 14, farRight, 14, colors.gray)
-  drawButton(target, "clear", "CLEAR TARGET", left, 15, right, 15, colors.orange)
-  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 15, farRight, 15, colors.red)
-  drawButton(target, "update", "UPDATE", left, 16, right, 16, colors.purple)
-  drawButton(target, "uninstall", "UNINSTALL", farLeft, 16, farRight, 16, colors.brown)
-  drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
+  drawButtonRow(target, {
+    { "details", "DETAILS", colors.lightBlue },
+    { "menu-routes", menu == "routes" and "ROUTES ^" or "ROUTES", colors.green },
+    { "menu-flight", menu == "flight" and "FLIGHT ^" or "FLIGHT", colors.cyan },
+    { "menu-system", menu == "system" and "SYSTEM ^" or "SYSTEM", colors.blue },
+  }, 10, 2, width - 2)
+  if menu == "routes" then
+    drawBox(target, 2, 12, width - 2, 15, " ROUTES ")
+    drawButtonRow(target, {
+      { "target", "SET TARGET", colors.green },
+      { "clear", "CLEAR TARGET", colors.orange },
+    }, 13, 4, width - 4)
+    drawButtonRow(target, {
+      { "waypoint", "SAVE WP", colors.lime },
+      { "schedule", "NEW SCHED", colors.green },
+      { "run-schedule", "RUN SCHED", colors.cyan },
+    }, 14, 4, width - 4)
+  elseif menu == "flight" then
+    drawBox(target, 2, 12, width - 2, 15, " FLIGHT ")
+    drawButtonRow(target, {
+      { "mode-nav", "NAV MODE", colors.cyan },
+      { "standby", "STANDBY", colors.gray },
+    }, 13, 4, width - 4)
+    drawButtonRow(target, {
+      { "automate", "AUTOMATE", colors.cyan },
+      { "stop", "OUTPUTS OFF", colors.red },
+    }, 14, 4, width - 4)
+  elseif menu == "system" then
+    drawBox(target, 2, 12, width - 2, 15, " SYSTEM ")
+    drawButtonRow(target, {
+      { "refresh", "REFRESH", colors.blue },
+      { "server", "START SERVER", colors.lime },
+    }, 13, 4, width - 4)
+    drawButtonRow(target, {
+      { "update", "UPDATE", colors.purple },
+      { "uninstall", "UNINSTALL", colors.brown },
+    }, 14, 4, width - 4)
+  else
+    writeAt(target, 2, 12, "Choose Routes, Flight, or System for actions.")
+  end
+  drawButton(target, "exit", "EXIT", 2, height - 2, width - 2, height - 1, colors.gray)
   writeAt(target, 2, height, "Touch/click. Q exits. Server blocks this screen while running.")
 end
 
@@ -823,7 +858,8 @@ end
 
 local function interface(config)
   local target, monitorName = screen(config)
-  drawInterface(config, target)
+  local menu
+  drawInterface(config, target, menu)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
@@ -835,18 +871,21 @@ local function interface(config)
       x, y = nil, nil
     end
     local action = x and hitButton(x, y)
-    if action == "refresh" then drawInterface(config, target)
+    if action == "menu-routes" then menu = menu == "routes" and nil or "routes"; drawInterface(config, target, menu)
+    elseif action == "menu-flight" then menu = menu == "flight" and nil or "flight"; drawInterface(config, target, menu)
+    elseif action == "menu-system" then menu = menu == "system" and nil or "system"; drawInterface(config, target, menu)
+    elseif action == "refresh" then drawInterface(config, target, menu)
     elseif action == "details" then showDetails(config, target)
-    elseif action == "back" then drawInterface(config, target)
-    elseif action == "target" then promptTarget(); drawInterface(config, target)
-    elseif action == "waypoint" then promptWaypoint(config); drawInterface(config, target)
-    elseif action == "schedule" then promptSchedule(); drawInterface(config, target)
-    elseif action == "run-schedule" then promptRunSchedule(); drawInterface(config, target)
-    elseif action == "automate" then automate(config); drawInterface(config, target)
-    elseif action == "mode-nav" then saveMode("navigate"); drawInterface(config, target)
-    elseif action == "standby" then saveMode("standby"); drawInterface(config, target)
-    elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target)
-    elseif action == "stop" then clearOutputs(config); saveMode("standby"); drawInterface(config, target)
+    elseif action == "back" then drawInterface(config, target, menu)
+    elseif action == "target" then promptTarget(); drawInterface(config, target, menu)
+    elseif action == "waypoint" then promptWaypoint(config); drawInterface(config, target, menu)
+    elseif action == "schedule" then promptSchedule(); drawInterface(config, target, menu)
+    elseif action == "run-schedule" then promptRunSchedule(); drawInterface(config, target, menu)
+    elseif action == "automate" then automate(config); drawInterface(config, target, menu)
+    elseif action == "mode-nav" then saveMode("navigate"); drawInterface(config, target, menu)
+    elseif action == "standby" then saveMode("standby"); drawInterface(config, target, menu)
+    elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target, menu)
+    elseif action == "stop" then clearOutputs(config); saveMode("standby"); drawInterface(config, target, menu)
     elseif action == "server" then target.clear(); writeAt(target, 2, 2, "Starting remote server..."); server(config); return
     elseif action == "update" then target.clear(); writeAt(target, 2, 2, "Updating aircraft package..."); shell.run(ROOT .. "/update.lua"); return
     elseif action == "uninstall" then target.clear(); writeAt(target, 2, 2, "Running uninstall..."); shell.run(ROOT .. "/uninstall.lua"); return
