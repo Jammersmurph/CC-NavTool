@@ -57,9 +57,9 @@ if not fs.exists(ROOT .. "/waypoints.db") then
   file.close()
 end
 
-local launcher = fs.open("/navtool", "w")
+local launcher = fs.open("/navtool.lua", "w")
 if not launcher then
-  printError("Could not create /navtool launcher")
+  printError("Could not create /navtool.lua launcher")
   return
 end
 launcher.write('shell.run("/navtool/navtool.lua", ...)\n')
