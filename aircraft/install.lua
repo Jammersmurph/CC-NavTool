@@ -4,6 +4,7 @@ local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
+  { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 
@@ -55,5 +56,6 @@ launcher.write('shell.run("/navtool/navtool.lua", ...)\n')
 launcher.close()
 
 print("Onboard navtool installed.")
-print("Run: navtool status")
+print("Run: navtool")
+print("Uninstall: navtool uninstall")
 print("Remote networking is disabled by default.")

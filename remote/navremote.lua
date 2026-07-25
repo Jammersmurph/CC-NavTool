@@ -10,6 +10,12 @@ local function loadConfig()
   return config
 end
 
+local function saveConfig(config)
+  local file = fs.open(CONFIG_PATH, "w")
+  file.write("return " .. textutils.serialize(config) .. "\n")
+  file.close()
+end
+
 local function openModem()
   for _, name in ipairs(peripheral.getNames()) do
     if peripheral.getType(name) == "modem" then
@@ -19,9 +25,14 @@ local function openModem()
   end
 end
 
+local command = (args[1] or "menu"):lower()
+if command == "uninstall" then shell.run(ROOT .. "/uninstall.lua"); return end
+if command == "update" then shell.run(ROOT .. "/update.lua"); return end
+if command == "version" then print(VERSION); return end
+
 local config, err = loadConfig()
 if not config then printError("Config error: " .. err); return end
-if not openModem() then printError("No wired or wireless modem found."); return end
+if command ~= "config" and not openModem() then printError("No wired or wireless modem found."); return end
 
 local function request(command, extra)
   local hostId = rednet.lookup(config.protocol or "cc-navtool", config.host or "navtool-aircraft")
@@ -58,10 +69,37 @@ local function writeAt(target, x, y, text)
   target.write(text)
 end
 
+local function line(target, x, y, label, value)
+  writeAt(target, x, y, label .. tostring(value or "unknown"))
+end
+
+local function drawHeader(target, title)
+  local width = target.getSize()
+  color(target, colors.blue, colors.white)
+  target.setCursorPos(1, 1)
+  target.write(string.rep(" ", width))
+  writeAt(target, 2, 1, title)
+  color(target, colors.black, colors.white)
+end
+
 local function compact(value)
   local text = textutils.serialize(value)
   if #text > 38 then return text:sub(1, 35) .. "..." end
   return text
+end
+
+local function vectorText(value)
+  if type(value) ~= "table" then return "unknown" end
+  local source = value.position or value.pos or value.translation or value
+  local x, y, z = tonumber(source.x or source[1]), tonumber(source.y or source[2]), tonumber(source.z or source[3])
+  if not x or not y or not z then return compact(value) end
+  return string.format("%.1f %.1f %.1f", x, y, z)
+end
+
+local function targetText(target)
+  if not target then return "none" end
+  local name = target.name and (target.name .. " ") or ""
+  return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
 end
 
 local function drawButton(target, id, label, x1, y1, x2, y2, background)
@@ -96,6 +134,8 @@ local function showStatus(target)
   writeAt(target, 2, 8, "Target: " .. compact(data.target))
   writeAt(target, 2, 9, "Pose: " .. compact(data.pose))
   writeAt(target, 2, 10, "Velocity: " .. compact(data.velocity))
+  writeAt(target, 2, 11, "Mode: " .. tostring(data.mode or "standby"))
+  writeAt(target, 2, 12, "Waypoints: " .. tostring(#(data.waypointNames or {})))
 end
 
 local function setTarget()
@@ -112,6 +152,85 @@ local function setTarget()
   if response then print("Destination saved on aircraft.") else printError(requestErr) end
 end
 
+local function saveWaypoint()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Save Aircraft Waypoint")
+  write("Name: ")
+  local name = read()
+  write("X: ")
+  local x = tonumber(read())
+  write("Y: ")
+  local y = tonumber(read())
+  write("Z: ")
+  local z = tonumber(read())
+  if name == "" or not x or not y or not z then printError("Name and numeric coordinates are required."); sleep(1.5); return end
+  local response, requestErr = request("save-waypoint", { waypoint = { name = name, x = x, y = y, z = z } })
+  if response then print("Waypoint saved on aircraft.") else printError(requestErr) end
+  sleep(1)
+end
+
+local function waypointManager(target)
+  local response, requestErr = request("waypoint-list")
+  local width, height = target.getSize()
+  color(target, colors.black, colors.white)
+  target.clear()
+  drawHeader(target, "Saved Destinations")
+  if not response then
+    line(target, 2, 3, "Error: ", requestErr)
+  else
+    local names = response.names or {}
+    if #names == 0 then line(target, 2, 3, "Saved destinations: ", "none") end
+    local y = 3
+    for _, name in ipairs(names) do
+      if y >= height - 5 then break end
+      line(target, 2, y, name .. ": ", targetText(response.waypoints[name]))
+      y = y + 1
+    end
+  end
+  drawButton(target, "wp-add", "ADD", 2, height - 4, math.floor(width / 3), height - 3, colors.green)
+  drawButton(target, "wp-goto", "GOTO", math.floor(width / 3) + 2, height - 4, math.floor(width * 2 / 3), height - 3, colors.cyan)
+  drawButton(target, "wp-delete", "DELETE", math.floor(width * 2 / 3) + 2, height - 4, width - 2, height - 3, colors.red)
+  drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
+end
+
+local function waypointNamePrompt(command)
+  term.clear()
+  term.setCursorPos(1, 1)
+  write("Waypoint name: ")
+  local name = read()
+  if name == "" then return end
+  local response, requestErr = request(command, { name = name })
+  if response then print("Done.") else printError(requestErr) end
+  sleep(1)
+end
+
+local function setMode(mode)
+  local response, requestErr = request("set-mode", { mode = mode })
+  if not response then return requestErr end
+end
+
+local function editConfig()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Remote Configuration")
+  write("Host [" .. tostring(config.host or "navtool-aircraft") .. "]: ")
+  local host = read()
+  write("Protocol [" .. tostring(config.protocol or "cc-navtool") .. "]: ")
+  local protocol = read()
+  write("Shared key [hidden, blank keeps]: ")
+  local key = read("*")
+  write("Timeout seconds [" .. tostring(config.timeout or 3) .. "]: ")
+  local timeout = tonumber(read())
+  if host ~= "" then config.host = host end
+  if protocol ~= "" then config.protocol = protocol end
+  if key ~= "" then config.sharedKey = key end
+  if timeout then config.timeout = timeout end
+  saveConfig(config)
+  print("Config saved.")
+  sleep(1)
+end
+
 local function drawMenu(target, message)
   buttons = {}
   local response, requestErr = request("status")
@@ -123,19 +242,31 @@ local function drawMenu(target, message)
   local farRight = width - 2
   color(target, colors.black, colors.white)
   target.clear()
-  writeAt(target, 2, 1, "CC-NavTool Remote " .. VERSION)
-  writeAt(target, 2, 3, "Aircraft: " .. tostring(config.host))
-  writeAt(target, 2, 4, "Telemetry: " .. (data.telemetry and "ONLINE" or "OFFLINE"))
-  writeAt(target, 2, 5, "Target: " .. compact(data.target))
+  drawHeader(target, "CC-NavTool Remote " .. VERSION)
+  line(target, 2, 3, "Aircraft: ", config.host)
+  line(target, 2, 4, "Telemetry: ", data.telemetry and "ONLINE" or "OFFLINE")
+  line(target, 2, 5, "Target: ", targetText(data.target))
+  line(target, 2, 6, "Mode: ", data.mode or "standby")
+  line(target, math.max(28, math.floor(width / 2)), 3, "Version: ", data.version)
+  line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", vectorText(data.pose))
+  line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(data.velocity))
+  line(target, math.max(28, math.floor(width / 2)), 6, "Waypoints: ", #(data.waypointNames or {}))
   if requestErr then writeAt(target, 2, 7, "Error: " .. requestErr) end
   if message then writeAt(target, 2, 7, message) end
-  drawButton(target, "status", "STATUS", left, 8, right, 10, colors.blue)
-  drawButton(target, "target", "SET DEST", farLeft, 8, farRight, 10, colors.green)
-  drawButton(target, "clear", "CLEAR DEST", left, 12, right, 14, colors.orange)
-  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 12, farRight, 14, colors.red)
-  drawButton(target, "update", "UPDATE", left, 16, right, 17, colors.purple)
-  drawButton(target, "exit", "EXIT", farLeft, 16, farRight, 17, colors.gray)
-  writeAt(target, 2, height, "Touch/click a button. Q exits.")
+  drawButton(target, "status", "DETAILS", left, 8, right, 8, colors.lightBlue)
+  drawButton(target, "target", "SET DEST", farLeft, 8, farRight, 8, colors.green)
+  drawButton(target, "waypoints", "WAYPOINTS", left, 9, right, 9, colors.lime)
+  drawButton(target, "mode-nav", "NAV MODE", farLeft, 9, farRight, 9, colors.cyan)
+  drawButton(target, "mode-hover", "HOVER", left, 10, right, 10, colors.cyan)
+  drawButton(target, "mode-standby", "STANDBY", farLeft, 10, farRight, 10, colors.gray)
+  drawButton(target, "clear", "CLEAR DEST", left, 11, right, 11, colors.orange)
+  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 11, farRight, 11, colors.red)
+  drawButton(target, "config", "CONFIG", left, 12, right, 13, colors.blue)
+  drawButton(target, "refresh", "REFRESH", farLeft, 12, farRight, 13, colors.cyan)
+  drawButton(target, "update", "UPDATE", left, 14, right, 15, colors.purple)
+  drawButton(target, "uninstall", "UNINSTALL", farLeft, 14, farRight, 15, colors.brown)
+  drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
+  writeAt(target, 2, height, "Touch/click. Q exits. Aircraft must run navtool server.")
 end
 
 local function menu()
@@ -153,18 +284,28 @@ local function menu()
     end
     local action = x and hitButton(x, y)
     if action == "status" then local _, height = target.getSize(); showStatus(target); writeAt(target, 2, height, "Touch anywhere to return."); os.pullEvent(); drawMenu(target)
+    elseif action == "refresh" then drawMenu(target)
     elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); drawMenu(target)
+    elseif action == "waypoints" then waypointManager(target)
+    elseif action == "wp-add" then local previous = term.redirect(target); saveWaypoint(); term.redirect(previous); drawMenu(target)
+    elseif action == "wp-goto" then local previous = term.redirect(target); waypointNamePrompt("goto-waypoint"); term.redirect(previous); drawMenu(target)
+    elseif action == "wp-delete" then local previous = term.redirect(target); waypointNamePrompt("delete-waypoint"); term.redirect(previous); drawMenu(target)
+    elseif action == "back" then drawMenu(target)
+    elseif action == "mode-nav" then drawMenu(target, setMode("navigate") or "Mode set to navigate.")
+    elseif action == "mode-hover" then drawMenu(target, setMode("hover") or "Mode set to hover.")
+    elseif action == "mode-standby" then drawMenu(target, setMode("standby") or "Mode set to standby.")
     elseif action == "clear" then local ok, e = request("clear-target"); drawMenu(target, ok and "Destination cleared." or e)
     elseif action == "stop" then local ok, e = request("outputs-off"); drawMenu(target, ok and "Aircraft outputs cleared." or e)
+    elseif action == "config" then editConfig(); drawMenu(target)
     elseif action == "update" then target.clear(); writeAt(target, 2, 2, "Updating remote..."); shell.run(ROOT .. "/update.lua"); return
+    elseif action == "uninstall" then target.clear(); writeAt(target, 2, 2, "Running uninstall..."); shell.run(ROOT .. "/uninstall.lua"); return
     elseif action == "exit" then return end
   end
 end
 
-local command = (args[1] or "menu"):lower()
 if command == "status" then showStatus()
 elseif command == "target" then setTarget()
+elseif command == "waypoint" then saveWaypoint()
 elseif command == "stop" then local ok, e = request("outputs-off"); if ok then print("Aircraft outputs cleared.") else printError(e) end
-elseif command == "update" then shell.run(ROOT .. "/update.lua")
-elseif command == "version" then print(VERSION)
+elseif command == "config" then editConfig()
 else menu() end

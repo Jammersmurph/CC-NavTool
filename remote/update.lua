@@ -3,6 +3,7 @@ local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/
 local FILES = {
   { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
+  { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 local function download(remote, localPath)
