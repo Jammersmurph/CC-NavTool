@@ -256,6 +256,11 @@ local function vectorText(value)
   return string.format("%.1f %.1f %.1f", x, y, z)
 end
 
+local function statusVectorText(data, key)
+  if not data or not data.version then return "not refreshed" end
+  return vectorText(data[key])
+end
+
 local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
@@ -307,8 +312,8 @@ local function showStatus(target)
   writeAt(target, 2, 6, "Aircraft version: " .. tostring(data.version))
   if data.peripheral then writeAt(target, 2, 7, "Peripheral: " .. tostring(data.peripheral)) end
   writeAt(target, 2, 8, "Target: " .. compact(data.target))
-  writeAt(target, 2, 9, "Pose: " .. compact(data.pose))
-  writeAt(target, 2, 10, "Velocity: " .. compact(data.velocity))
+  writeAt(target, 2, 9, "Position: " .. vectorText(data.position))
+  writeAt(target, 2, 10, "Velocity: " .. vectorText(data.velocity))
   writeAt(target, 2, 11, "Mode: " .. tostring(data.mode or "standby"))
   writeAt(target, 2, 12, "Waypoints: " .. tostring(#(data.waypointNames or {})))
   writeAt(target, 2, 13, "Schedules: " .. tostring(#(data.scheduleNames or {})))
@@ -511,8 +516,8 @@ local function drawMenu(target, message, menu, data, requestErr)
   line(target, 2, 6, "Target: ", targetText(data.target))
   line(target, 2, 7, "Mode: ", data.mode or "standby")
   line(target, math.max(28, math.floor(width / 2)), 3, "Version: ", data.version)
-  line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", vectorText(data.pose))
-  line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(data.velocity))
+  line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", statusVectorText(data, "position"))
+  line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", statusVectorText(data, "velocity"))
   line(target, math.max(28, math.floor(width / 2)), 6, "Waypoints: ", #(data.waypointNames or {}))
   line(target, math.max(28, math.floor(width / 2)), 7, "Schedules: ", #(data.scheduleNames or {}))
   if requestErr then writeAt(target, 2, 8, "Error: " .. requestErr) end
