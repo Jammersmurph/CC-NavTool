@@ -25,6 +25,11 @@ return {
     verticalScale = 12,
     thrustStartDistance = 8,
     thrustFullDistance = 50,
+    steeringDeadband = 0.12,
+    steeringScale = 0.8,
+    steeringInvert = false,
+    headingMinimumSpeed = 0.25,
+    headingUnknownForwardRatio = 0,
   },
   orientation = {
     forward = { x = 0, y = 0, z = -1 },
