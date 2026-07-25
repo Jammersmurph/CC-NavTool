@@ -632,6 +632,41 @@ local function status(config)
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
 end
 
+local function diagnose(config)
+  print("CC-NavTool telemetry diagnostics")
+  print("Configured telemetryPeripheral: " .. tostring(config.telemetryPeripheral))
+  print("Detected telemetryPeripheral: " .. tostring(telemetryName(config)))
+  print("")
+  local candidates = {
+    "getLogicalPose", "getPose", "getPosition", "getShipPosition", "getWorldPosition", "getBlockPosition",
+    "getLinearVelocity", "getVelocity", "getShipVelocity", "getAngularVelocity", "getMass",
+    "getX", "getY", "getZ", "getWorldX", "getWorldY", "getWorldZ", "getShipX", "getShipY", "getShipZ",
+  }
+  for _, name in ipairs(peripheral.getNames()) do
+    print("Peripheral: " .. name .. " (" .. tostring(peripheral.getType(name)) .. ")")
+    local available = methods(name)
+    print("Methods: " .. table.concat(available, ", "))
+    for _, method in ipairs(candidates) do
+      if has(available, method) then
+        local ok, a, b, c = pcall(peripheral.call, name, method)
+        if ok then
+          if b ~= nil or c ~= nil then
+            print("  " .. method .. " => " .. shortText({ a, b, c }))
+          else
+            print("  " .. method .. " => " .. shortText(a))
+          end
+        else
+          print("  " .. method .. " failed: " .. tostring(a))
+        end
+      end
+    end
+    print("")
+  end
+  local state = snapshot(config)
+  print("Normalized position: " .. shortText(state.position))
+  print("Normalized velocity: " .. shortText(state.velocity))
+end
+
 local function scaledStrength(config, outputName, ratio)
   local output = config.outputs and config.outputs[outputName]
   if type(output) ~= "table" then return 0 end
@@ -1000,10 +1035,11 @@ if config._migrated then config._migrated = nil; saveConfig(config) end
 if command == "setup" or command == "onboarding" then onboarding(config, true); return end
 config = onboarding(config, false)
 if command == "status" then status(config)
+elseif command == "diagnose" then diagnose(config)
 elseif command == "server" then server(config)
 elseif command == "ui" or command == "run" then interface(config)
 elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 else
-  print("Usage: navtool ui|status|server|automate|setup|update|uninstall|outputs-off|version")
+  print("Usage: navtool ui|status|diagnose|server|automate|setup|update|uninstall|outputs-off|version")
 end
