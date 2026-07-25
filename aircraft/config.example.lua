@@ -15,6 +15,12 @@ return {
     arrivalRadius = 5,
     stopSpeed = 0.5,
   },
+  automation = {
+    altitudeDeadband = 1.5,
+    verticalScale = 12,
+    thrustStartDistance = 8,
+    thrustFullDistance = 50,
+  },
   orientation = {
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },

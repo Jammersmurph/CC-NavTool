@@ -3,17 +3,117 @@ local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local args = { ... }
 local buttons = {}
+local config
 
 local function loadConfig()
   local ok, config = pcall(dofile, CONFIG_PATH)
   if not ok or type(config) ~= "table" then return nil, tostring(config) end
+  if type(config.profiles) ~= "table" then
+    config.profiles = {
+      default = {
+        protocol = config.protocol or "cc-navtool",
+        host = config.host or "navtool-aircraft",
+        sharedKey = config.sharedKey or "",
+        timeout = config.timeout or 3,
+      }
+    }
+    config.activeProfile = "default"
+    config._migrated = true
+  end
+  if not config.activeProfile or not config.profiles[config.activeProfile] then
+    for name in pairs(config.profiles) do config.activeProfile = name; break end
+  end
   return config
 end
 
 local function saveConfig(config)
+  config._migrated = nil
   local file = fs.open(CONFIG_PATH, "w")
   file.write("return " .. textutils.serialize(config) .. "\n")
   file.close()
+end
+
+local function profileNames()
+  local names = {}
+  for name in pairs(config.profiles or {}) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
+local function activeProfile()
+  return (config.profiles and config.profiles[config.activeProfile]) or config
+end
+
+local function setActiveProfile(name)
+  if config.profiles and config.profiles[name] then
+    config.activeProfile = name
+    saveConfig(config)
+    return true
+  end
+  return false
+end
+
+local function printProfiles()
+  print("Remote Profiles")
+  for _, name in ipairs(profileNames()) do
+    local profile = config.profiles[name]
+    local marker = name == config.activeProfile and "* " or "  "
+    print(marker .. name .. " -> " .. tostring(profile.host or "navtool-aircraft"))
+  end
+end
+
+local function addProfile()
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("Add Remote Profile")
+  write("Profile name: ")
+  local name = read()
+  if name == "" then printError("Profile name is required."); sleep(1.5); return end
+  write("Host [navtool-aircraft]: ")
+  local host = read()
+  write("Protocol [cc-navtool]: ")
+  local protocol = read()
+  write("Shared key: ")
+  local key = read("*")
+  write("Timeout seconds [3]: ")
+  local timeout = tonumber(read())
+  config.profiles[name] = {
+    host = host ~= "" and host or "navtool-aircraft",
+    protocol = protocol ~= "" and protocol or "cc-navtool",
+    sharedKey = key,
+    timeout = timeout or 3,
+  }
+  config.activeProfile = name
+  saveConfig(config)
+  print("Profile saved and selected.")
+  sleep(1)
+end
+
+local function selectProfilePrompt()
+  term.clear()
+  term.setCursorPos(1, 1)
+  printProfiles()
+  write("Select profile: ")
+  local name = read()
+  if setActiveProfile(name) then print("Selected " .. name) else printError("Profile not found") end
+  sleep(1)
+end
+
+local function deleteProfilePrompt()
+  term.clear()
+  term.setCursorPos(1, 1)
+  printProfiles()
+  write("Delete profile: ")
+  local name = read()
+  if name == "" then return end
+  if not config.profiles[name] then printError("Profile not found"); sleep(1); return end
+  local count = #profileNames()
+  if count <= 1 then printError("Cannot delete the only profile."); sleep(1.5); return end
+  config.profiles[name] = nil
+  if config.activeProfile == name then config.activeProfile = profileNames()[1] end
+  saveConfig(config)
+  print("Profile deleted.")
+  sleep(1)
 end
 
 local function openModem()
@@ -30,18 +130,23 @@ if command == "uninstall" then shell.run(ROOT .. "/uninstall.lua"); return end
 if command == "update" then shell.run(ROOT .. "/update.lua"); return end
 if command == "version" then print(VERSION); return end
 
-local config, err = loadConfig()
+local err
+config, err = loadConfig()
 if not config then printError("Config error: " .. err); return end
-if command ~= "config" and not openModem() then printError("No wired or wireless modem found."); return end
+if config._migrated then saveConfig(config) end
+if command ~= "config" and command ~= "profile" and not openModem() then printError("No wired or wireless modem found."); return end
 
 local function request(command, extra)
-  local hostId = rednet.lookup(config.protocol or "cc-navtool", config.host or "navtool-aircraft")
+  local connection = activeProfile()
+  local protocol = connection.protocol or "cc-navtool"
+  local host = connection.host or "navtool-aircraft"
+  local hostId = rednet.lookup(protocol, host)
   if not hostId then return nil, "Aircraft host not found" end
   local payload = extra or {}
   payload.command = command
-  payload.key = config.sharedKey or ""
-  rednet.send(hostId, payload, config.protocol or "cc-navtool")
-  local sender, response = rednet.receive(config.protocol or "cc-navtool", config.timeout or 3)
+  payload.key = connection.sharedKey or ""
+  rednet.send(hostId, payload, protocol)
+  local sender, response = rednet.receive(protocol, connection.timeout or 3)
   if sender ~= hostId or type(response) ~= "table" then return nil, "No valid response" end
   if not response.ok then return nil, response.error or "Command rejected" end
   return response
@@ -123,14 +228,16 @@ local function showStatus(target)
   local response, requestErr = request("status")
   if not response then printError(requestErr); return end
   local data = response.data or {}
+  local connection = activeProfile()
   target = target or term.current()
   color(target, colors.black, colors.white)
   target.clear()
   writeAt(target, 2, 1, "CC-NavTool Remote " .. VERSION)
-  writeAt(target, 2, 3, "Host: " .. tostring(config.host))
-  writeAt(target, 2, 4, "Telemetry: " .. (data.telemetry and "ONLINE" or "OFFLINE"))
-  writeAt(target, 2, 5, "Aircraft version: " .. tostring(data.version))
-  if data.peripheral then writeAt(target, 2, 6, "Peripheral: " .. tostring(data.peripheral)) end
+  writeAt(target, 2, 3, "Profile: " .. tostring(config.activeProfile))
+  writeAt(target, 2, 4, "Host: " .. tostring(connection.host))
+  writeAt(target, 2, 5, "Telemetry: " .. (data.telemetry and "ONLINE" or "OFFLINE"))
+  writeAt(target, 2, 6, "Aircraft version: " .. tostring(data.version))
+  if data.peripheral then writeAt(target, 2, 7, "Peripheral: " .. tostring(data.peripheral)) end
   writeAt(target, 2, 8, "Target: " .. compact(data.target))
   writeAt(target, 2, 9, "Pose: " .. compact(data.pose))
   writeAt(target, 2, 10, "Velocity: " .. compact(data.velocity))
@@ -275,27 +382,48 @@ local function scheduleManager(target)
   drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
 end
 
+local function profileManager(target)
+  local width, height = target.getSize()
+  color(target, colors.black, colors.white)
+  target.clear()
+  drawHeader(target, "Remote Host Profiles")
+  local y = 3
+  for _, name in ipairs(profileNames()) do
+    if y >= height - 5 then break end
+    local profile = config.profiles[name]
+    local marker = name == config.activeProfile and "* " or "  "
+    line(target, 2, y, marker .. name .. ": ", tostring(profile.host or "navtool-aircraft"))
+    y = y + 1
+  end
+  drawButton(target, "profile-add", "ADD", 2, height - 4, math.floor(width / 3), height - 3, colors.green)
+  drawButton(target, "profile-select", "SELECT", math.floor(width / 3) + 2, height - 4, math.floor(width * 2 / 3), height - 3, colors.cyan)
+  drawButton(target, "profile-delete", "DELETE", math.floor(width * 2 / 3) + 2, height - 4, width - 2, height - 3, colors.red)
+  drawButton(target, "back", "BACK", 2, height - 2, width - 2, height - 1, colors.gray)
+end
+
 local function setMode(mode)
   local response, requestErr = request("set-mode", { mode = mode })
   if not response then return requestErr end
 end
 
 local function editConfig()
+  local connection = activeProfile()
   term.clear()
   term.setCursorPos(1, 1)
-  print("Remote Configuration")
-  write("Host [" .. tostring(config.host or "navtool-aircraft") .. "]: ")
+  print("Remote Profile Configuration")
+  print("Profile: " .. tostring(config.activeProfile))
+  write("Host [" .. tostring(connection.host or "navtool-aircraft") .. "]: ")
   local host = read()
-  write("Protocol [" .. tostring(config.protocol or "cc-navtool") .. "]: ")
+  write("Protocol [" .. tostring(connection.protocol or "cc-navtool") .. "]: ")
   local protocol = read()
   write("Shared key [hidden, blank keeps]: ")
   local key = read("*")
-  write("Timeout seconds [" .. tostring(config.timeout or 3) .. "]: ")
+  write("Timeout seconds [" .. tostring(connection.timeout or 3) .. "]: ")
   local timeout = tonumber(read())
-  if host ~= "" then config.host = host end
-  if protocol ~= "" then config.protocol = protocol end
-  if key ~= "" then config.sharedKey = key end
-  if timeout then config.timeout = timeout end
+  if host ~= "" then connection.host = host end
+  if protocol ~= "" then connection.protocol = protocol end
+  if key ~= "" then connection.sharedKey = key end
+  if timeout then connection.timeout = timeout end
   saveConfig(config)
   print("Config saved.")
   sleep(1)
@@ -303,6 +431,7 @@ end
 
 local function drawMenu(target, message)
   buttons = {}
+  local connection = activeProfile()
   local response, requestErr = request("status")
   local data = response and response.data or {}
   local width, height = target.getSize()
@@ -313,29 +442,30 @@ local function drawMenu(target, message)
   color(target, colors.black, colors.white)
   target.clear()
   drawHeader(target, "CC-NavTool Remote " .. VERSION)
-  line(target, 2, 3, "Aircraft: ", config.host)
-  line(target, 2, 4, "Telemetry: ", data.telemetry and "ONLINE" or "OFFLINE")
-  line(target, 2, 5, "Target: ", targetText(data.target))
-  line(target, 2, 6, "Mode: ", data.mode or "standby")
+  line(target, 2, 3, "Profile: ", config.activeProfile)
+  line(target, 2, 4, "Aircraft: ", connection.host)
+  line(target, 2, 5, "Telemetry: ", data.telemetry and "ONLINE" or "OFFLINE")
+  line(target, 2, 6, "Target: ", targetText(data.target))
+  line(target, 2, 7, "Mode: ", data.mode or "standby")
   line(target, math.max(28, math.floor(width / 2)), 3, "Version: ", data.version)
   line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", vectorText(data.pose))
   line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", vectorText(data.velocity))
   line(target, math.max(28, math.floor(width / 2)), 6, "Waypoints: ", #(data.waypointNames or {}))
   line(target, math.max(28, math.floor(width / 2)), 7, "Schedules: ", #(data.scheduleNames or {}))
-  if requestErr then writeAt(target, 2, 7, "Error: " .. requestErr) end
-  if message then writeAt(target, 2, 7, message) end
-  drawButton(target, "status", "DETAILS", left, 8, right, 8, colors.lightBlue)
-  drawButton(target, "target", "SET DEST", farLeft, 8, farRight, 8, colors.green)
-  drawButton(target, "waypoints", "WAYPOINTS", left, 9, right, 9, colors.lime)
-  drawButton(target, "mode-nav", "NAV MODE", farLeft, 9, farRight, 9, colors.cyan)
-  drawButton(target, "mode-hover", "HOVER", left, 10, right, 10, colors.cyan)
-  drawButton(target, "mode-standby", "STANDBY", farLeft, 10, farRight, 10, colors.gray)
+  if requestErr then writeAt(target, 2, 8, "Error: " .. requestErr) end
+  if message then writeAt(target, 2, 8, message) end
+  drawButton(target, "status", "DETAILS", left, 9, right, 9, colors.lightBlue)
+  drawButton(target, "target", "SET DEST", farLeft, 9, farRight, 9, colors.green)
+  drawButton(target, "waypoints", "WAYPOINTS", left, 10, right, 10, colors.lime)
+  drawButton(target, "profiles", "PROFILES", farLeft, 10, farRight, 10, colors.blue)
   drawButton(target, "schedules", "SCHEDULES", left, 11, right, 11, colors.green)
   drawButton(target, "automate", "ARM AUTO", farLeft, 11, farRight, 11, colors.cyan)
-  drawButton(target, "clear", "CLEAR DEST", left, 12, right, 12, colors.orange)
-  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 12, farRight, 12, colors.red)
-  drawButton(target, "config", "CONFIG", left, 13, right, 14, colors.blue)
-  drawButton(target, "refresh", "REFRESH", farLeft, 13, farRight, 14, colors.cyan)
+  drawButton(target, "mode-nav", "NAV MODE", left, 12, right, 12, colors.cyan)
+  drawButton(target, "mode-standby", "STANDBY", farLeft, 12, farRight, 12, colors.gray)
+  drawButton(target, "clear", "CLEAR DEST", left, 13, right, 13, colors.orange)
+  drawButton(target, "stop", "OUTPUTS OFF", farLeft, 13, farRight, 13, colors.red)
+  drawButton(target, "config", "CONFIG", left, 14, right, 14, colors.blue)
+  drawButton(target, "refresh", "REFRESH", farLeft, 14, farRight, 14, colors.cyan)
   drawButton(target, "update", "UPDATE", left, 15, right, 16, colors.purple)
   drawButton(target, "uninstall", "UNINSTALL", farLeft, 15, farRight, 16, colors.brown)
   drawButton(target, "exit", "EXIT", left, 17, farRight, 18, colors.gray)
@@ -361,6 +491,7 @@ local function menu()
     elseif action == "target" then color(target, colors.black, colors.white); target.clear(); target.setCursorPos(1, 1); local previous = term.redirect(target); setTarget(); term.redirect(previous); sleep(1); drawMenu(target)
     elseif action == "waypoints" then waypointManager(target)
     elseif action == "schedules" then scheduleManager(target)
+    elseif action == "profiles" then profileManager(target)
     elseif action == "wp-add" then local previous = term.redirect(target); saveWaypoint(); term.redirect(previous); drawMenu(target)
     elseif action == "wp-goto" then local previous = term.redirect(target); waypointNamePrompt("goto-waypoint"); term.redirect(previous); drawMenu(target)
     elseif action == "wp-delete" then local previous = term.redirect(target); waypointNamePrompt("delete-waypoint"); term.redirect(previous); drawMenu(target)
@@ -369,6 +500,9 @@ local function menu()
     elseif action == "sch-delete" then local previous = term.redirect(target); scheduleNamePrompt("delete-schedule"); term.redirect(previous); drawMenu(target)
     elseif action == "sch-stop" then local ok, e = request("stop-schedule"); drawMenu(target, ok and "Schedule stopped." or e)
     elseif action == "automate" then local previous = term.redirect(target); scheduleNamePrompt("run-schedule"); term.redirect(previous); drawMenu(target)
+    elseif action == "profile-add" then local previous = term.redirect(target); addProfile(); term.redirect(previous); drawMenu(target)
+    elseif action == "profile-select" then local previous = term.redirect(target); selectProfilePrompt(); term.redirect(previous); drawMenu(target)
+    elseif action == "profile-delete" then local previous = term.redirect(target); deleteProfilePrompt(); term.redirect(previous); drawMenu(target)
     elseif action == "back" then drawMenu(target)
     elseif action == "mode-nav" then drawMenu(target, setMode("navigate") or "Mode set to navigate.")
     elseif action == "mode-hover" then drawMenu(target, setMode("hover") or "Mode set to hover.")
@@ -388,4 +522,5 @@ elseif command == "waypoint" then saveWaypoint()
 elseif command == "schedule" then createSchedule()
 elseif command == "stop" then local ok, e = request("outputs-off"); if ok then print("Aircraft outputs cleared.") else printError(e) end
 elseif command == "config" then editConfig()
+elseif command == "profile" then printProfiles()
 else menu() end

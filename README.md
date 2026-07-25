@@ -65,10 +65,12 @@ Current implemented foundations:
 * Coordinate schedules with multiple stops
 * Remote schedule creation, run, delete, and stop
 * `navtool automate` schedule runner
+* Conservative redstone output automation for `navigate` and `hover`
+* Multiple `navremote` host profiles with separate hostnames and shared keys
 * Rednet remote control protocol
 * Emergency output clearing
 
-Important limitation: `navtool automate` currently advances schedule targets only. It does not yet steer the craft or apply redstone thrust automatically.
+Important limitation: `navtool automate` can now apply bounded redstone outputs, but it does not yet perform full heading/orientation steering. Test with low `safety.maximumOutput` values over an empty area.
 
 ---
 

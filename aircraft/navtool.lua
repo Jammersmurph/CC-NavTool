@@ -55,6 +55,35 @@ local function clearOutputs(config)
   end
 end
 
+local function outputMaximum(config, output)
+  local safety = type(config.safety) == "table" and config.safety or {}
+  return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
+end
+
+local function setOutput(config, control, strength)
+  local output = config.outputs and config.outputs[control]
+  if type(output) ~= "table" or not output.side then return false end
+  local maximum = outputMaximum(config, output)
+  local value = math.max(0, math.min(maximum, math.floor(tonumber(strength) or 0)))
+  if output.inverted and value > 0 then value = math.max(1, maximum - value + 1) end
+  if output.analog == false then
+    redstone.setOutput(output.side, value > 0)
+  else
+    redstone.setAnalogOutput(output.side, value)
+  end
+  return true, value
+end
+
+local function applyOutputs(config, requested)
+  local applied = {}
+  for control in pairs(config.outputs or {}) do
+    local ok, _, value = pcall(setOutput, config, control, requested[control] or 0)
+    if not ok then value = 0 end
+    applied[control] = value or 0
+  end
+  return applied
+end
+
 local function loadTarget()
   if not fs.exists(TARGET_PATH) then return nil end
   local file = fs.open(TARGET_PATH, "r")
@@ -327,6 +356,7 @@ local function server(config)
           local mode = tostring(request.mode or "standby")
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
             saveMode(mode)
+            if mode == "standby" then clearOutputs(config) end
             response = { ok = true, mode = mode }
           else
             response = { ok = false, error = "unsupported mode" }
@@ -401,6 +431,7 @@ local function server(config)
         elseif request.command == "stop-schedule" then
           saveActiveSchedule(nil)
           saveMode("standby")
+          clearOutputs(config)
           response = { ok = true }
         elseif request.command == "stop" or request.command == "outputs-off" then
           clearOutputs(config)
@@ -429,15 +460,80 @@ local function status(config)
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
 end
 
+local function scaledStrength(config, outputName, ratio)
+  local output = config.outputs and config.outputs[outputName]
+  if type(output) ~= "table" then return 0 end
+  return math.max(0, math.min(outputMaximum(config, output), math.ceil(outputMaximum(config, output) * math.max(0, math.min(1, ratio)))))
+end
+
+local function horizontalDistance(a, b)
+  if not a or not b then return nil end
+  local dx = (tonumber(a.x) or 0) - (tonumber(b.x) or 0)
+  local dz = (tonumber(a.z) or 0) - (tonumber(b.z) or 0)
+  return math.sqrt(dx * dx + dz * dz)
+end
+
+local function automationOutputs(config, state)
+  local mode = state.mode or "standby"
+  local outputs = {}
+  local notes = {}
+  local automation = type(config.automation) == "table" and config.automation or {}
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local altitudeDeadband = tonumber(automation.altitudeDeadband) or 1.5
+  local verticalScale = tonumber(automation.verticalScale) or 12
+  local thrustStartDistance = tonumber(automation.thrustStartDistance) or navigation.arrivalRadius or 5
+  local thrustFullDistance = tonumber(automation.thrustFullDistance) or navigation.slowdownRadius or 50
+  if mode == "standby" then
+    notes[#notes + 1] = "standby"
+    return outputs, notes
+  end
+  if not state.telemetry or not state.position then
+    notes[#notes + 1] = "no telemetry position"
+    return outputs, notes
+  end
+  if mode == "navigate" or mode == "return-home" then
+    if not state.target then
+      notes[#notes + 1] = "no target"
+      return outputs, notes
+    end
+    local altitudeError = (tonumber(state.target.y) or state.position.y) - state.position.y
+    if altitudeError > altitudeDeadband then
+      outputs.up = scaledStrength(config, "up", math.abs(altitudeError) / verticalScale)
+    elseif altitudeError < -altitudeDeadband then
+      outputs.down = scaledStrength(config, "down", math.abs(altitudeError) / verticalScale)
+    end
+    local horizontal = horizontalDistance(state.position, state.target)
+    if horizontal and horizontal > thrustStartDistance then
+      outputs.forward = scaledStrength(config, "forward", math.min(1, horizontal / thrustFullDistance))
+    end
+    notes[#notes + 1] = string.format("alt %.1f", altitudeError)
+    notes[#notes + 1] = horizontal and string.format("horizontal %.1f", horizontal) or "horizontal unknown"
+  elseif mode == "hover" then
+    local velocity = extractVector(state.velocity)
+    local verticalVelocity = velocity and velocity.y or 0
+    if verticalVelocity > 0.2 then
+      outputs.down = scaledStrength(config, "down", math.min(1, math.abs(verticalVelocity) / 4))
+    elseif verticalVelocity < -0.2 then
+      outputs.up = scaledStrength(config, "up", math.min(1, math.abs(verticalVelocity) / 4))
+    end
+    notes[#notes + 1] = string.format("vertical velocity %.2f", verticalVelocity)
+  else
+    notes[#notes + 1] = "unsupported mode"
+  end
+  return outputs, notes
+end
+
 local function automate(config)
   local interval = config.updateInterval or 0.5
   local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
-  print("CC-NavTool automation scheduler")
-  print("This advances schedule targets only. It does not drive thrusters yet.")
+  print("CC-NavTool automation")
+  print("Redstone outputs are bounded by config safety limits.")
   print("Press Q to stop automation and return to standby.")
   while true do
     local state = snapshot(config)
     local active = state.activeSchedule
+    local requested, notes = automationOutputs(config, state)
+    local applied = applyOutputs(config, requested)
     term.clear()
     term.setCursorPos(1, 1)
     print("CC-NavTool Automate")
@@ -469,6 +565,7 @@ local function automate(config)
             print("Schedule complete. Returning to standby.")
             saveActiveSchedule(nil)
             saveMode("standby")
+            clearOutputs(config)
           else
             active.index = index + 1
             saveActiveSchedule(active)
@@ -480,7 +577,8 @@ local function automate(config)
       end
     end
     print("")
-    print("No redstone automation is active in this build.")
+    print("Outputs: " .. textutils.serialize(applied))
+    print("Notes: " .. table.concat(notes, ", "))
     local timer = os.startTimer(interval)
     local event, value
     repeat event, value = os.pullEvent() until event == "timer" and value == timer or event == "key"
