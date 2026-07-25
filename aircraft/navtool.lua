@@ -163,6 +163,45 @@ local function applyOutputs(config, requested)
   return applied
 end
 
+local function makeOutputController(config)
+  local active = {}
+  local automation = type(config.automation) == "table" and config.automation or {}
+  local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
+  local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
+  local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  return function(requested, forceClear)
+    requested = requested or {}
+    local applied = {}
+    local now = os.clock()
+    if forceClear then active = {} end
+    for control in pairs(config.outputs or {}) do
+      local requestedValue = forceClear and 0 or (tonumber(requested[control]) or 0)
+      local state = active[control]
+      local value = requestedValue
+      if requestedValue > 0 then
+        if not state then
+          state = { since = now, last = now, value = requestedValue, holding = false }
+          active[control] = state
+        end
+        state.last = now
+        state.value = requestedValue
+        if now - state.since >= holdAfter then state.holding = true end
+      elseif state then
+        local grace = state.holding and holdReleaseGrace or pulseReleaseGrace
+        if now - state.last <= grace then
+          value = state.value
+        else
+          active[control] = nil
+        end
+      end
+      local ok, _, appliedValue = pcall(setOutput, config, control, value)
+      if not ok then appliedValue = 0 end
+      applied[control] = appliedValue or 0
+    end
+    return applied
+  end
+end
+
 local function loadTarget()
   if not fs.exists(TARGET_PATH) then return nil end
   local file = fs.open(TARGET_PATH, "r")
@@ -579,6 +618,7 @@ local function server(config)
   print("Host: " .. host)
   local manualUntil = {}
   local lastAutomation = 0
+  local automationOutputController = makeOutputController(config)
   local function clearExpiredManual()
     local now = os.clock()
     for control, expiresAt in pairs(manualUntil) do
@@ -595,7 +635,7 @@ local function server(config)
       local interval = tonumber(config.updateInterval) or 0.5
       if now - lastAutomation >= interval then
         lastAutomation = now
-        serverAutomationTick(config)
+        serverAutomationTick(config, automationOutputController)
       end
     end
     local sender, request = rednet.receive(channel, 0.05)
@@ -631,6 +671,7 @@ local function server(config)
             local duration = math.max(0, math.min(tonumber(safety.maximumRemotePulse) or 2.0, tonumber(request.duration) or 0.25))
             local strength = tonumber(request.strength) or outputMaximum(config, output)
             if next(manualUntil) == nil and (tonumber(strength) or 0) > 0 then
+              automationOutputController(nil, true)
               saveActiveSchedule(nil)
               saveMode("standby")
             end
@@ -720,6 +761,7 @@ local function server(config)
           response = { ok = true }
         elseif request.command == "stop" or request.command == "outputs-off" then
           manualUntil = {}
+          automationOutputController(nil, true)
           clearOutputs(config)
           saveActiveSchedule(nil)
           saveMode("standby")
@@ -879,7 +921,7 @@ local function automationOutputs(config, state)
   return outputs, notes
 end
 
-serverAutomationTick = function(config)
+serverAutomationTick = function(config, outputController)
   local state = snapshot(config)
   local active = state.activeSchedule
   local navigation = type(config.navigation) == "table" and config.navigation or {}
@@ -917,12 +959,13 @@ serverAutomationTick = function(config)
     end
   end
   local requested = automationOutputs(config, state)
-  applyOutputs(config, requested)
+  if outputController then outputController(requested, state.mode == "standby") else applyOutputs(config, requested) end
 end
 
 local function automate(config)
   local interval = config.updateInterval or 0.5
   local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
+  local outputController = makeOutputController(config)
   print("CC-NavTool automation")
   print("Redstone outputs are bounded by config safety limits.")
   print("Press Q to stop automation and return to standby.")
@@ -930,7 +973,7 @@ local function automate(config)
     local state = snapshot(config)
     local active = state.activeSchedule
     local requested, notes = automationOutputs(config, state)
-    local applied = applyOutputs(config, requested)
+    local applied = outputController(requested, state.mode == "standby")
     term.clear()
     term.setCursorPos(1, 1)
     print("CC-NavTool Automate")
@@ -979,7 +1022,7 @@ local function automate(config)
     local timer = os.startTimer(interval)
     local event, value
     repeat event, value = os.pullEvent() until event == "timer" and value == timer or event == "key"
-    if event == "key" and value == keys.q then saveActiveSchedule(nil); saveMode("standby"); clearOutputs(config); return end
+    if event == "key" and value == keys.q then saveActiveSchedule(nil); saveMode("standby"); outputController(nil, true); clearOutputs(config); return end
   end
 end
 

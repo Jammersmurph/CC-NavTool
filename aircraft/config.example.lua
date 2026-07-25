@@ -30,6 +30,9 @@ return {
     steeringInvert = false,
     headingMinimumSpeed = 0.25,
     headingUnknownForwardRatio = 0,
+    outputHoldAfter = 0.6,
+    outputPulseReleaseGrace = 0.25,
+    outputHoldReleaseGrace = 1.0,
   },
   orientation = {
     forward = { x = 0, y = 0, z = -1 },

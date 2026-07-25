@@ -73,6 +73,7 @@ Current implemented foundations:
 * Remote manual control with bounded hold-to-pulse output leases
 * `navtool server` runs navigation/hover automation while serving remote commands
 * Heading steering through left/right outputs using pose orientation when available, or GPS velocity while moving
+* Repeated automation output requests latch into held redstone outputs instead of one-shot pulses
 * `navtool automate` standalone schedule runner
 * Conservative redstone output automation for `navigate` and `hover`
 * Multiple `navremote` host profiles with separate hostnames and shared keys
