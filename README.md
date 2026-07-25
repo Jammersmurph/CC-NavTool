@@ -74,12 +74,12 @@ Current implemented foundations:
 * Conservative redstone output automation for `navigate` and `hover`
 * Multiple `navremote` host profiles with separate hostnames and shared keys
 * Automatic `navremote` discovery of running `navtool server` hosts on Rednet
-* Rednet remote control protocol
+* Rednet remote control channel
 * Emergency output clearing
 
 Important limitation: `navtool automate` can now apply bounded redstone outputs, but it does not yet perform full heading/orientation steering. Test with low `safety.maximumOutput` values over an empty area.
 
-When creating a `navremote` profile, the remote scans the selected Rednet protocol for hosted aircraft. The matching `network.sharedKey` from the aircraft config is still required to control that aircraft.
+When creating a `navremote` profile, the remote scans the selected Rednet channel for hosted aircraft. The matching `network.sharedKey` from the aircraft config is still required to control that aircraft.
 
 ---
 

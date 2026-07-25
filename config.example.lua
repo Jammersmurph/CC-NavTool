@@ -12,7 +12,7 @@ return {
   },
   network = {
     enabled = true,
-    protocol = "cc-navtool",
+    channel = "cc-navtool",
     host = "navtool-aircraft",
     sharedKey = "change-me", -- CHANGE THIS on both aircraft and pocket computer.
   },

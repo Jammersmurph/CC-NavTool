@@ -2,7 +2,7 @@
 local VERSION = "0.2.0-alpha"
 local CONFIG_PATH = "/navtool/remote.lua"
 local DEFAULT = {
-  protocol = "cc-navtool",
+  channel = "cc-navtool",
   host = "navtool-aircraft",
   sharedKey = "change-me",
   timeout = 3,
@@ -37,15 +37,16 @@ local function openWirelessModem()
 end
 
 local function request(config, command, data)
-  local host = rednet.lookup(config.protocol, config.host)
+  local channel = config.channel or config.protocol or "cc-navtool"
+  local host = rednet.lookup(channel, config.host)
   if not host then return nil, "Aircraft host not found" end
   rednet.send(host, {
     type = "navtool_request",
     key = config.sharedKey,
     command = command,
     data = data,
-  }, config.protocol)
-  local sender, response = rednet.receive(config.protocol, config.timeout or 3)
+  }, channel)
+  local sender, response = rednet.receive(channel, config.timeout or 3)
   if sender ~= host or type(response) ~= "table" or response.type ~= "navtool_response" then
     return nil, "No valid response"
   end
