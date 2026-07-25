@@ -754,9 +754,9 @@ local function targetText(target)
   return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
 end
 
-local function drawInterface(config, target, menu)
+local function drawInterface(config, target, menu, state)
   buttons = {}
-  local state = snapshot(config)
+  state = state or snapshot(config)
   local width, height = target.getSize()
   color(target, colors.black, colors.white)
   target.clear()
@@ -859,7 +859,8 @@ end
 local function interface(config)
   local target, monitorName = screen(config)
   local menu
-  drawInterface(config, target, menu)
+  local state = snapshot(config)
+  drawInterface(config, target, menu, state)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
@@ -871,21 +872,21 @@ local function interface(config)
       x, y = nil, nil
     end
     local action = x and hitButton(x, y)
-    if action == "menu-routes" then menu = menu == "routes" and nil or "routes"; drawInterface(config, target, menu)
-    elseif action == "menu-flight" then menu = menu == "flight" and nil or "flight"; drawInterface(config, target, menu)
-    elseif action == "menu-system" then menu = menu == "system" and nil or "system"; drawInterface(config, target, menu)
-    elseif action == "refresh" then drawInterface(config, target, menu)
+    if action == "menu-routes" then menu = menu == "routes" and nil or "routes"; drawInterface(config, target, menu, state)
+    elseif action == "menu-flight" then menu = menu == "flight" and nil or "flight"; drawInterface(config, target, menu, state)
+    elseif action == "menu-system" then menu = menu == "system" and nil or "system"; drawInterface(config, target, menu, state)
+    elseif action == "refresh" then state = snapshot(config); drawInterface(config, target, menu, state)
     elseif action == "details" then showDetails(config, target)
-    elseif action == "back" then drawInterface(config, target, menu)
-    elseif action == "target" then promptTarget(); drawInterface(config, target, menu)
-    elseif action == "waypoint" then promptWaypoint(config); drawInterface(config, target, menu)
-    elseif action == "schedule" then promptSchedule(); drawInterface(config, target, menu)
-    elseif action == "run-schedule" then promptRunSchedule(); drawInterface(config, target, menu)
-    elseif action == "automate" then automate(config); drawInterface(config, target, menu)
-    elseif action == "mode-nav" then saveMode("navigate"); drawInterface(config, target, menu)
-    elseif action == "standby" then saveMode("standby"); drawInterface(config, target, menu)
-    elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; drawInterface(config, target, menu)
-    elseif action == "stop" then clearOutputs(config); saveMode("standby"); drawInterface(config, target, menu)
+    elseif action == "back" then drawInterface(config, target, menu, state)
+    elseif action == "target" then promptTarget(); state = snapshot(config); drawInterface(config, target, menu, state)
+    elseif action == "waypoint" then promptWaypoint(config); state = snapshot(config); drawInterface(config, target, menu, state)
+    elseif action == "schedule" then promptSchedule(); state = snapshot(config); drawInterface(config, target, menu, state)
+    elseif action == "run-schedule" then promptRunSchedule(); state = snapshot(config); drawInterface(config, target, menu, state)
+    elseif action == "automate" then automate(config); state = snapshot(config); drawInterface(config, target, menu, state)
+    elseif action == "mode-nav" then saveMode("navigate"); state.mode = "navigate"; drawInterface(config, target, menu, state)
+    elseif action == "standby" then saveMode("standby"); state.mode = "standby"; drawInterface(config, target, menu, state)
+    elseif action == "clear" then if fs.exists(TARGET_PATH) then fs.delete(TARGET_PATH) end; state.target = nil; drawInterface(config, target, menu, state)
+    elseif action == "stop" then clearOutputs(config); saveMode("standby"); state.mode = "standby"; drawInterface(config, target, menu, state)
     elseif action == "server" then target.clear(); writeAt(target, 2, 2, "Starting remote server..."); server(config); return
     elseif action == "update" then target.clear(); writeAt(target, 2, 2, "Updating aircraft package..."); shell.run(ROOT .. "/update.lua"); return
     elseif action == "uninstall" then target.clear(); writeAt(target, 2, 2, "Running uninstall..."); shell.run(ROOT .. "/uninstall.lua"); return
