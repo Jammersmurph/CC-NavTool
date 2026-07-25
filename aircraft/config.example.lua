@@ -1,4 +1,5 @@
 return {
+  onboardingComplete = false,
   updateInterval = 0.10,
   telemetryPeripheral = nil,
   monitorPeripheral = nil,

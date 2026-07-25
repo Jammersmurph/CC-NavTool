@@ -41,6 +41,12 @@ navtool
 navremote
 ```
 
+On first aircraft launch, `navtool` runs an onboarding setup for Rednet networking. To rerun it later:
+
+```text
+navtool setup
+```
+
 The GUIs work on an Advanced Computer terminal with mouse clicks and on attached monitors with touch events.
 
 Update commands:
