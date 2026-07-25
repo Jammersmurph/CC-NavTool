@@ -53,6 +53,39 @@ local function setActiveProfile(name)
   return false
 end
 
+local function discoverHosts(protocol)
+  local ok, result = pcall(rednet.lookup, protocol or "cc-navtool")
+  local hosts = {}
+  if not ok or type(result) ~= "table" then return hosts end
+  for key, value in pairs(result) do
+    if type(key) == "string" and type(value) == "number" then
+      hosts[#hosts + 1] = { name = key, id = value }
+    elseif type(key) == "number" and type(value) == "string" then
+      hosts[#hosts + 1] = { name = value, id = key }
+    end
+  end
+  table.sort(hosts, function(a, b) return a.name < b.name end)
+  return hosts
+end
+
+local function chooseDiscoveredHost(protocol)
+  local hosts = discoverHosts(protocol)
+  if #hosts == 0 then
+    print("No navtool servers found on protocol " .. tostring(protocol) .. ".")
+    return nil
+  end
+  print("Discovered navtool servers:")
+  for index, host in ipairs(hosts) do
+    print("  " .. index .. ". " .. host.name .. " (ID " .. tostring(host.id) .. ")")
+  end
+  write("Select number, hostname, or blank for manual: ")
+  local choice = read()
+  if choice == "" then return nil end
+  local index = tonumber(choice)
+  if index and hosts[index] then return hosts[index].name end
+  return choice
+end
+
 local function printProfiles()
   print("Remote Profiles")
   for _, name in ipairs(profileNames()) do
@@ -69,17 +102,22 @@ local function addProfile()
   write("Profile name: ")
   local name = read()
   if name == "" then printError("Profile name is required."); sleep(1.5); return end
-  write("Host [navtool-aircraft]: ")
-  local host = read()
   write("Protocol [cc-navtool]: ")
   local protocol = read()
+  protocol = protocol ~= "" and protocol or "cc-navtool"
+  print("Scanning for hosted aircraft...")
+  local host = chooseDiscoveredHost(protocol)
+  if not host then
+    write("Host [navtool-aircraft]: ")
+    host = read()
+  end
   write("Shared key: ")
   local key = read("*")
   write("Timeout seconds [3]: ")
   local timeout = tonumber(read())
   config.profiles[name] = {
     host = host ~= "" and host or "navtool-aircraft",
-    protocol = protocol ~= "" and protocol or "cc-navtool",
+    protocol = protocol,
     sharedKey = key,
     timeout = timeout or 3,
   }
@@ -117,11 +155,21 @@ local function deleteProfilePrompt()
 end
 
 local function openModem()
+  local fallback
   for _, name in ipairs(peripheral.getNames()) do
     if peripheral.getType(name) == "modem" then
-      if not rednet.isOpen(name) then rednet.open(name) end
-      return name
+      local modem = peripheral.wrap(name)
+      local ok, wireless = pcall(modem.isWireless)
+      if ok and wireless then
+        if not rednet.isOpen(name) then rednet.open(name) end
+        return name
+      end
+      fallback = fallback or name
     end
+  end
+  if fallback then
+    if not rednet.isOpen(fallback) then rednet.open(fallback) end
+    return fallback
   end
 end
 
