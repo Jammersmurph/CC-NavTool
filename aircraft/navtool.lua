@@ -15,6 +15,79 @@ local function loadConfig()
   return config
 end
 
+local function saveConfig(config)
+  local file = fs.open(CONFIG_PATH, "w")
+  file.write("return " .. textutils.serialize(config) .. "\n")
+  file.close()
+end
+
+local function prompt(default, label)
+  write(label .. " [" .. tostring(default) .. "]: ")
+  local value = read()
+  if value == "" then return default end
+  return value
+end
+
+local function promptYesNo(label, default)
+  local suffix = default and "Y/n" or "y/N"
+  write(label .. " [" .. suffix .. "]: ")
+  local value = read():lower()
+  if value == "" then return default end
+  return value == "y" or value == "yes"
+end
+
+local function hasModem()
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "modem" then return true end
+  end
+  return false
+end
+
+local function onboarding(config, force)
+  if config.onboardingComplete and not force then return config end
+  term.clear()
+  term.setCursorPos(1, 1)
+  print("CC-NavTool First Launch Setup")
+  print("This configures aircraft networking for navremote.")
+  print("")
+  if not hasModem() then
+    print("No modem was detected. You can still configure networking now,")
+    print("but navtool server needs a wired or wireless/Ender modem later.")
+    print("")
+  end
+  config.network = type(config.network) == "table" and config.network or {}
+  local enable = promptYesNo("Enable Rednet remote control", config.network.enabled == true)
+  config.network.enabled = enable
+  config.network.protocol = prompt(config.network.protocol or "cc-navtool", "Rednet protocol")
+  config.network.host = prompt(config.network.host or ("navtool-aircraft-" .. tostring(os.getComputerID())), "Aircraft host name")
+  if enable then
+    repeat
+      write("Shared key required by navremote: ")
+      local key = read("*")
+      if key ~= "" then config.network.sharedKey = key; break end
+      printError("Shared key cannot be blank when networking is enabled.")
+    until false
+  else
+    config.network.sharedKey = config.network.sharedKey or ""
+  end
+  config.onboardingComplete = true
+  saveConfig(config)
+  print("")
+  print("Setup saved to " .. CONFIG_PATH)
+  if enable then
+    print("Remote profile values:")
+    print("  Protocol: " .. tostring(config.network.protocol))
+    print("  Host: " .. tostring(config.network.host))
+    print("  Shared key: the key you just entered")
+  else
+    print("Networking is disabled. Run 'navtool setup' to enable it later.")
+  end
+  print("")
+  print("Press Enter to continue.")
+  read()
+  return config
+end
+
 local function methods(name)
   local ok, result = pcall(peripheral.getMethods, name)
   return ok and result or {}
@@ -783,11 +856,13 @@ if command == "version" then print(VERSION); return end
 
 local config, err = loadConfig()
 if not config then printError("Config error: " .. err); return end
+if command == "setup" or command == "onboarding" then onboarding(config, true); return end
+config = onboarding(config, false)
 if command == "status" then status(config)
 elseif command == "server" then server(config)
 elseif command == "ui" or command == "run" then interface(config)
 elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 else
-  print("Usage: navtool ui|status|server|automate|update|uninstall|outputs-off|version")
+  print("Usage: navtool ui|status|server|automate|setup|update|uninstall|outputs-off|version")
 end
