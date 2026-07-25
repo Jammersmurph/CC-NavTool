@@ -29,7 +29,7 @@ return {
     steeringScale = 0.8,
     steeringInvert = false,
     headingMinimumSpeed = 0.25,
-    headingUnknownForwardRatio = 0,
+    headingUnknownForwardRatio = 0.25,
     outputHoldAfter = 0.6,
     outputPulseReleaseGrace = 0.25,
     outputHoldReleaseGrace = 1.0,

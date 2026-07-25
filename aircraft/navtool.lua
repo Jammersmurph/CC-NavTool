@@ -860,7 +860,7 @@ local function automationOutputs(config, state)
   local steeringDeadband = tonumber(automation.steeringDeadband) or 0.12
   local steeringScale = tonumber(automation.steeringScale) or 0.8
   local headingMinimumSpeed = tonumber(automation.headingMinimumSpeed) or 0.25
-  local headingUnknownForwardRatio = tonumber(automation.headingUnknownForwardRatio) or 0
+  local headingUnknownForwardRatio = tonumber(automation.headingUnknownForwardRatio) or 0.25
   local steeringInvert = automation.steeringInvert == true
   if mode == "standby" then
     notes[#notes + 1] = "standby"
@@ -901,7 +901,7 @@ local function automationOutputs(config, state)
         if headingUnknownForwardRatio > 0 then
           outputs.forward = scaledStrength(config, "forward", forwardRatio * math.max(0, math.min(1, headingUnknownForwardRatio)))
         end
-        notes[#notes + 1] = "heading unknown"
+        notes[#notes + 1] = "heading unknown; bootstrapping forward"
       end
     end
     notes[#notes + 1] = string.format("alt %.1f", altitudeError)
@@ -1223,10 +1223,23 @@ local function interface(config)
   local target, monitorName = screen(config)
   local menu
   local state = snapshot(config)
+  local refreshTimer
+  local function scheduleRefresh(delay)
+    refreshTimer = os.startTimer(delay or 1.0)
+  end
   drawInterface(config, target, menu, state)
+  scheduleRefresh()
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
+    if event == "timer" and side == refreshTimer then
+      refreshTimer = nil
+      if buttons["menu-routes"] then
+        state = snapshot(config)
+        drawInterface(config, target, menu, state)
+      end
+      scheduleRefresh()
+    end
     if event == "mouse_click" then
       -- mouse_click returns button, x, y. Keep the terminal coordinates.
     elseif event == "monitor_touch" and side ~= monitorName then

@@ -610,6 +610,7 @@ local function menu()
   local activeMenu
   local heldControls = {}
   local manualTimer
+  local autoRefreshTimer
   local statusData = {}
   local statusErr
   local function refreshStatus()
@@ -624,7 +625,11 @@ local function menu()
   local function scheduleManualRenewal()
     if hasHeldManualControls() and not manualTimer then manualTimer = os.startTimer(0.15) end
   end
+  local function scheduleAutoRefresh(delay)
+    autoRefreshTimer = os.startTimer(delay or 1.0)
+  end
   drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
+  scheduleAutoRefresh(0.1)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
@@ -641,6 +646,13 @@ local function menu()
         if held then manualPulse(control, 3, 0.35) end
       end
       scheduleManualRenewal()
+    elseif event == "timer" and side == autoRefreshTimer then
+      autoRefreshTimer = nil
+      if buttons["menu-nav"] then
+        refreshStatus()
+        drawMenu(target, nil, activeMenu, statusData, statusErr)
+      end
+      scheduleAutoRefresh()
     elseif buttons["manual-forward"] and (event == "key" or event == "key_up") then
       local control = manualKey(side)
       if control then
