@@ -135,9 +135,15 @@ Some features may also work with other Create Aeronautics integrations, provided
 
 ## How It Works
 
-CC-NavTool reads position from either a compatible telemetry peripheral or standard CC:Tweaked GPS.
+CC-NavTool reads telemetry from the best available source, in this order: CC:Sable's `sublevel` API, compatible Create: Avionics peripherals, legacy telemetry peripherals, then standard CC:Tweaked GPS.
 
-With only a modem attached, you must provide a working CC:Tweaked GPS network. In that setup, `navtool` uses `gps.locate()` for position and estimates velocity from repeated GPS fixes. GPS requires separate fixed GPS host computers/beacons with known coordinates.
+With only a modem attached, you must provide a working CC:Tweaked GPS network. In that setup, `navtool` uses `gps.locate()` for position and estimates velocity from repeated GPS fixes. GPS requires separate fixed GPS host computers/beacons with known coordinates. GPS position alone does not include craft rotation, so GPS-only steering can only infer heading once the craft is moving.
+
+For less janky stationary steering, use the Create: Avionics `navigation_table`. It exposes `getHeading()` and `getOrientation()`, so navtool can know craft yaw while stationary instead of bootstrapping from GPS velocity. The `gimbal_sensor` is still useful for pitch/roll/angular-rate telemetry, but its docs correctly note that gravity alone cannot measure yaw.
+
+When CC:Sable is present, navtool also reads the global `sublevel` API (`getLogicalPose`, `getLinearVelocity`, `getAngularVelocity`, `getMass`) for full craft pose/velocity while the computer is on a Sable sub-level. This is not a peripheral, so navtool checks it separately from `peripheral.getNames()`.
+
+If multiple Avionics blocks are attached, set these in `/navtool/config.lua`: `navigationTablePeripheral`, `gimbalSensorPeripheral`, `altitudeSensorPeripheral`, or `physicsAssemblerPeripheral`.
 
 If your modpack includes a compatible aircraft telemetry peripheral, it may also provide:
 
@@ -150,7 +156,7 @@ If your modpack includes a compatible aircraft telemetry peripheral, it may also
 * Inertia information
 * Craft UUID
 
-The craft orientation is represented using a quaternion. CC-NavTool uses quaternion math to determine the craft's actual forward, up, and side directions.
+The craft orientation may be represented using a forward vector, cardinal facing, numeric yaw/bearing, or quaternion. CC-NavTool uses that orientation to determine the craft's actual forward direction while stationary. Numeric yaw defaults to the Create: Avionics heading convention (`0 = south`, `+90 = east`); set `orientation.yawFormat = "compass"` for north-zero compass bearings, or adjust `orientation.yawOffset` if a sensor reports a mounted-sideways heading.
 
 The program then calculates:
 

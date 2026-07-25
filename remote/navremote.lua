@@ -314,9 +314,10 @@ local function showStatus(target)
   writeAt(target, 2, 8, "Target: " .. compact(data.target))
   writeAt(target, 2, 9, "Position: " .. vectorText(data.position))
   writeAt(target, 2, 10, "Velocity: " .. vectorText(data.velocity))
-  writeAt(target, 2, 11, "Mode: " .. tostring(data.mode or "standby"))
-  writeAt(target, 2, 12, "Waypoints: " .. tostring(#(data.waypointNames or {})))
-  writeAt(target, 2, 13, "Schedules: " .. tostring(#(data.scheduleNames or {})))
+  writeAt(target, 2, 11, "Heading: " .. vectorText(data.heading) .. " via " .. tostring(data.headingSource or "unknown"))
+  writeAt(target, 2, 12, "Mode: " .. tostring(data.mode or "standby"))
+  writeAt(target, 2, 13, "Waypoints: " .. tostring(#(data.waypointNames or {})))
+  writeAt(target, 2, 14, "Schedules: " .. tostring(#(data.scheduleNames or {})))
 end
 
 local function setTarget()
@@ -561,8 +562,8 @@ local function drawMenu(target, message, menu, data, requestErr)
   line(target, math.max(28, math.floor(width / 2)), 3, "Version: ", data.version)
   line(target, math.max(28, math.floor(width / 2)), 4, "Position: ", statusVectorText(data, "position"))
   line(target, math.max(28, math.floor(width / 2)), 5, "Velocity: ", statusVectorText(data, "velocity"))
-  line(target, math.max(28, math.floor(width / 2)), 6, "Waypoints: ", #(data.waypointNames or {}))
-  line(target, math.max(28, math.floor(width / 2)), 7, "Schedules: ", #(data.scheduleNames or {}))
+  line(target, math.max(28, math.floor(width / 2)), 6, "Heading: ", statusVectorText(data, "heading"))
+  line(target, math.max(28, math.floor(width / 2)), 7, "Waypoints: ", #(data.waypointNames or {}))
   if requestErr then writeAt(target, 2, 8, "Error: " .. requestErr) end
   if message then writeAt(target, 2, 8, message) end
   drawButtonRow(target, {
