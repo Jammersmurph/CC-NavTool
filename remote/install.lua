@@ -1,14 +1,13 @@
--- CC-NavTool remote installer
+-- CC-NavTool NavRemote installer (Advanced Computer only)
 local ROOT = "/navremote"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
 local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
-  { remote = "ui_runtime.lua", localPath = ROOT .. "/ui_runtime.lua" },
+  { remote = "input_runtime.lua", localPath = ROOT .. "/input_runtime.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
-  { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
@@ -28,6 +27,7 @@ local function download(remote, localPath)
   return true
 end
 
+if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/data")
@@ -46,13 +46,15 @@ if not fs.exists(ROOT .. "/config.lua") then
 else
   print("  Preserved remote configuration")
 end
+for _, stale in ipairs({"ui_runtime.lua", "navremote.lua"}) do
+  local path = ROOT .. "/" .. stale
+  if fs.exists(path) then fs.delete(path) end
+end
 local launcher = fs.open("/navremote.lua", "w")
-launcher.write('local a={...}; if a[1]=="legacy" then table.remove(a,1); shell.run("/navremote/navremote.lua", table.unpack(a)) else shell.run("/navremote/runtime.lua", table.unpack(a)) end\n')
+if not launcher then printError("Could not create /navremote.lua"); return end
+launcher.write('shell.run("/navremote/runtime.lua", ...)\n')
 launcher.close()
 print("NavRemote installed.")
 print("Run: navremote")
-print("Legacy interface: navremote legacy")
-print("Q goes back, X quits, and desktop icons support mouse clicks.")
-print("Aircraft discovery is available from the Aircraft page with F.")
-print("The location beacon runs silently when a wireless modem and GPS are available.")
-print("All targets, routes, schedules, logs, and cached state are stored locally under /navremote/data.")
+print("Advanced Computer mouse controls are enabled. Q goes back; X quits.")
+print("Local data is stored under /navremote/data.")
