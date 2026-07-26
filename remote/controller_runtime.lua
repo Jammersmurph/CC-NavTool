@@ -98,6 +98,60 @@ local function chooseLocationRemote(title)
 end
 ]]
 
+local oldRequest = [[local function request(command, extra)
+  local connection = profile()
+  if not connection then return nil, "No aircraft selected" end
+  local channel = connection.channel or "cc-navtool"
+  local host = connection.host or "navtool-aircraft"
+  local key = channel .. "\0" .. host
+  local hostId = hostCache[key] or rednet.lookup(channel, host)
+  if not hostId then return nil, "Aircraft offline" end
+  hostCache[key] = hostId
+  local payload = extra or {}
+  payload.command, payload.key = command, connection.sharedKey or ""
+  rednet.send(hostId, payload, channel)
+  local sender, response = rednet.receive(channel, tonumber(connection.timeout) or 3)
+  if sender ~= hostId or type(response) ~= "table" then hostCache[key] = nil; return nil, "No response" end
+  if not response.ok then return nil, response.error or "Rejected" end
+  return response
+end]]
+
+local fastRequest = [[local function request(command, extra)
+  local connection = profile()
+  if not connection then return nil, "No aircraft selected" end
+  local channel = connection.channel or "cc-navtool"
+  local host = connection.host or "navtool-aircraft"
+  local key = channel .. "\0" .. host
+
+  -- Imported/discovered profiles already know the computer ID. Using it avoids a
+  -- blocking rednet.lookup every time NavRemote starts.
+  local hostId = hostCache[key] or tonumber(connection.computerId)
+  if not hostId then
+    hostId = rednet.lookup(channel, host)
+    if hostId then
+      connection.computerId = hostId
+      saveConfig()
+    end
+  end
+  if not hostId then return nil, "Aircraft offline" end
+  hostCache[key] = hostId
+
+  local payload = extra or {}
+  payload.command, payload.key = command, connection.sharedKey or ""
+  rednet.send(hostId, payload, channel)
+  local sender, response = rednet.receive(channel, tonumber(connection.timeout) or 3)
+  if sender ~= hostId or type(response) ~= "table" then
+    hostCache[key] = nil
+    return nil, "No response"
+  end
+  if not response.ok then return nil, response.error or "Rejected" end
+  return response
+end]]
+
+local requestReplaced
+source,requestReplaced=replacePlainOnce(source,oldRequest,fastRequest)
+if not requestReplaced then printError("NavRemote could not install fast request path."); return end
+
 local anchor = "local function localData() return Storage.load(config.activeProfile or \"default\") end"
 local count=0
 local replaced
@@ -178,8 +232,9 @@ source=source:gsub("local function modesPage%(%).-\nend\n\nlocal function manual
 end,1)
 
 local newDashboard = [[local function dashboard(data)
+  -- One request only: live-status already contains the current target, including
+  -- dynamic/remote metadata when Follow is active.
   local status,err=refresh(data)
-  local location=request("location-list")
   clear(colors.black); header("Dashboard",err and "[ OFFLINE ]" or "[ SABLE ONLINE ]")
   status=status or {}; local p=status.position or {}; local v=status.velocity or {}
   local quality,qColor=connectionQuality(data.lastLatency)
@@ -189,7 +244,9 @@ local newDashboard = [[local function dashboard(data)
   writeAt(29,5,"Ping "..ageText(data.lastLatency),colors.lightGray)
   writeAt(3,7,"Mode"); writeAt(15,7,status.mode or "unknown",colors.lime)
   writeAt(3,8,"Target"); writeAt(15,8,status.target and (status.target.name or "coordinates") or "none",colors.yellow)
-  if location and location.following then writeAt(3,9,"Following"); writeAt(15,9,tostring(location.following),colors.cyan) end
+  if status.target and status.target.dynamic and status.target.remoteId then
+    writeAt(3,9,"Following"); writeAt(15,9,tostring(status.target.remoteId),colors.cyan)
+  end
   writeAt(3,11,"Position",colors.cyan)
   writeAt(3,12,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,12,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,12,string.format("Z %8.1f",tonumber(p.z) or 0))
   writeAt(3,14,"Velocity",colors.cyan)
