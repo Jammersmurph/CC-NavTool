@@ -14,7 +14,7 @@ local function loadConfig()
         channel = config.channel or config.protocol or "cc-navtool",
         host = config.host or "navtool-aircraft",
         sharedKey = config.sharedKey or "",
-        timeout = config.timeout or 5,
+        timeout = config.timeout or 3,
       }
     }
     config.activeProfile = "default"
@@ -120,13 +120,13 @@ local function addProfile()
   end
   write("Shared key: ")
   local key = read("*")
-  write("Timeout seconds [5]: ")
+  write("Timeout seconds [3]: ")
   local timeout = tonumber(read())
   config.profiles[name] = {
     host = host ~= "" and host or "navtool-aircraft",
     channel = channel,
     sharedKey = key,
-    timeout = timeout or 5,
+    timeout = timeout or 3,
   }
   config.activeProfile = name
   saveConfig(config)
@@ -201,7 +201,7 @@ local function request(command, extra)
   payload.command = command
   payload.key = connection.sharedKey or ""
   rednet.send(hostId, payload, channel)
-  local timeout = math.max(5, tonumber(connection.timeout) or 5)
+  local timeout = math.max(1, tonumber(connection.timeout) or 3)
   local deadline = os.clock() + timeout
   repeat
     local remaining = math.max(0.05, deadline - os.clock())
@@ -619,6 +619,7 @@ local function menu()
   local heldControls = {}
   local manualTimer
   local autoRefreshTimer
+  local autoRefreshEnabled = config.autoRefresh == true or activeProfile().autoRefresh == true
   local statusData = {}
   local statusErr
   local function refreshStatus(silent)
@@ -634,10 +635,10 @@ local function menu()
     if hasHeldManualControls() and not manualTimer then manualTimer = os.startTimer(0.15) end
   end
   local function scheduleAutoRefresh(delay)
-    autoRefreshTimer = os.startTimer(delay or 2.0)
+    if autoRefreshEnabled then autoRefreshTimer = os.startTimer(delay or 5.0) end
   end
   drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
-  scheduleAutoRefresh(0.1)
+  scheduleAutoRefresh(5.0)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
