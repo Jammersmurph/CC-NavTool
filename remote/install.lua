@@ -5,6 +5,8 @@ local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
   { remote = "input_runtime.lua", localPath = ROOT .. "/input_runtime.lua" },
+  { remote = "hardware_patch.lua", localPath = ROOT .. "/hardware_patch.lua" },
+  { remote = "hardware_runtime.lua", localPath = ROOT .. "/hardware_runtime.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
