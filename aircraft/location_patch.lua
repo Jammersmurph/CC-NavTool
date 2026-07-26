@@ -42,6 +42,14 @@ function Patch.apply(source)
         elseif request.command == "ping" then]]
   end, 1)
 
+  source = source:gsub('elseif request%.command == "set%-target" and type%(request%.target%) == "table" then\n          saveTarget%(request%.target%)', function()
+    count = count + 1
+    return [[elseif request.command == "set-target" and type(request.target) == "table" then
+          LocationNetwork.stopFollow()
+          saveActiveSchedule(nil)
+          saveTarget(request.target)]]
+  end, 1)
+
   source = source:gsub("local function interface%(config%)", function()
     count = count + 1
     return [[local function runService(config, debug)
