@@ -10,11 +10,61 @@ local function vector(value)
   if x and y and z then return { x = x, y = y, z = z } end
 end
 
+local function stagedTarget(state, target, config)
+  config = config or {}
+  local navigation = config.navigation or {}
+  local position = vector(state and state.position)
+  local requested = vector(target)
+  if not position or not requested then return requested, nil end
+
+  local dx, dz = requested.x - position.x, requested.z - position.z
+  local horizontalDistance = math.sqrt(dx * dx + dz * dz)
+  local following = type(target) == "table" and target.dynamic == true
+  local transitionRadius
+  if following then
+    transitionRadius = math.max(0.1, tonumber(navigation.followHorizontalRadius) or 10)
+  else
+    transitionRadius = math.max(0.1, tonumber(navigation.verticalTransitionRadius) or 3)
+  end
+
+  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 300
+  local desiredY
+  local phase
+  if horizontalDistance > transitionRadius then
+    desiredY = cruiseAltitude
+    phase = "horizontal-cruise"
+  elseif following then
+    desiredY = requested.y + (tonumber(navigation.followHeightOffset) or 10)
+    phase = "follow-offset"
+  else
+    desiredY = requested.y
+    phase = "final-altitude"
+  end
+
+  return {
+    x = requested.x,
+    y = desiredY,
+    z = requested.z,
+  }, {
+    requested = requested,
+    phase = phase,
+    following = following,
+    horizontalDistance = horizontalDistance,
+    transitionRadius = transitionRadius,
+    cruiseAltitude = cruiseAltitude,
+  }
+end
+
+function Director.navigationTarget(state, target, config)
+  return stagedTarget(state, target, config)
+end
+
 function Director.arrivalStatus(state, target, config)
   config = config or {}
   local navigation = config.navigation or {}
   local position = vector(state and state.position)
-  target = vector(target)
+  local navigationTarget, stage = stagedTarget(state, target, config)
+  target = vector(navigationTarget)
   if not position or not target then return false, nil end
 
   -- Minecraft positions and physics telemetry are floating point values. Requiring
@@ -49,6 +99,9 @@ function Director.arrivalStatus(state, target, config)
     horizontalTolerance = horizontalTolerance,
     verticalTolerance = verticalTolerance,
     velocityTolerance = velocityTolerance,
+    phase = stage and stage.phase or nil,
+    requestedTarget = stage and stage.requested or nil,
+    navigationTarget = target,
   }
 end
 
@@ -56,7 +109,9 @@ function Director.solve(state, target, config)
   config = config or {}
   local navigation = config.navigation or {}
   local position = vector(state and state.position)
-  target = vector(target)
+  local requestedTarget = target
+  local navigationTarget, stage = stagedTarget(state, target, config)
+  target = vector(navigationTarget)
   if not position or not target then return nil, "position or target unavailable" end
 
   local dx, dy, dz = target.x - position.x, target.y - position.y, target.z - position.z
@@ -74,9 +129,10 @@ function Director.solve(state, target, config)
   local desiredSpeed = precisionSpeed + (cruiseSpeed - precisionSpeed) * speedRatio
   if distance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
 
-  local arrived, arrival = Director.arrivalStatus(state, target, config)
+  local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
     target = target,
+    requestedTarget = vector(requestedTarget),
     desiredHeading = heading,
     desiredAltitude = target.y,
     desiredSpeed = desiredSpeed,
@@ -88,6 +144,8 @@ function Director.solve(state, target, config)
     zError = dz,
     arrival = arrival,
     arrived = arrived,
+    altitudePhase = stage and stage.phase or nil,
+    transitionRadius = stage and stage.transitionRadius or nil,
   }
 end
 
