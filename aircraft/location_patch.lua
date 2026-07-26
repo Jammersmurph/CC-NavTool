@@ -5,7 +5,7 @@ function Patch.apply(source)
 
   source = source:gsub("local IntegratedControl = dofile%(ROOT %.%. \"/lib/control_core%.lua\"%)", function()
     count = count + 1
-    return "local IntegratedControl = dofile(ROOT .. \"/lib/control_core.lua\")\nlocal LocationNetwork = dofile(ROOT .. \"/location_network.lua\")\nlocal Hardware = assert(rawget(_G, \"NavToolHardware\"), \"hardware layer unavailable\")"
+    return "local IntegratedControl = dofile(ROOT .. \"/lib/control_core.lua\")\nlocal LocationNetwork = dofile(ROOT .. \"/location_network.lua\")\nlocal Hardware = dofile(ROOT .. \"/hardware.lua\")\nHardware.installRedstoneProxy()"
   end, 1)
 
   source = source:gsub("  config%.onboardingComplete = true", function()
