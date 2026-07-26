@@ -6,7 +6,9 @@ if not file then printError("Could not open " .. SOURCE); return end
 local source = file.readAll()
 file.close()
 
-local injection = [[
+-- Use a level-one Lua long string so the injected code may safely contain
+-- ordinary [[ ... ]] strings of its own.
+local injection = [=[
 -- Minecraft consumes Escape to close the computer screen, so NavRemote uses Q to
 -- return from pages and X to exit the desktop. Apply this after all controller
 -- compatibility replacements have been generated.
@@ -41,7 +43,7 @@ source = source:gsub('  elseif event=="key" then', [[  elseif event=="mouse_clic
       end
     end
   elseif event=="key" then]], 1)
-]]
+]=]
 
 local anchor = "if count ~= 5 then"
 local first = source:find(anchor, 1, true)
