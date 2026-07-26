@@ -5,7 +5,7 @@ return {
       channel = "cc-navtool",
       host = "navtool-aircraft",
       sharedKey = "",
-      timeout = 3,
+      timeout = 5,
     },
   },
 }

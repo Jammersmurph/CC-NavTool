@@ -861,14 +861,6 @@ local function server(config)
   end
   while true do
     clearExpiredManual()
-    if next(manualUntil) == nil and serverAutomationTick then
-      local now = os.clock()
-      local interval = tonumber(config.updateInterval) or 0.5
-      if now - lastAutomation >= interval then
-        lastAutomation = now
-        serverAutomationTick(config, automationOutputController)
-      end
-    end
     local sender, request = rednet.receive(channel, 0.05)
     clearExpiredManual()
     if type(request) == "table" then
@@ -1002,6 +994,13 @@ local function server(config)
         end
       end
       rednet.send(sender, response, channel)
+    elseif next(manualUntil) == nil and serverAutomationTick then
+      local now = os.clock()
+      local interval = math.max(0.25, tonumber(config.updateInterval) or 0.5)
+      if now - lastAutomation >= interval then
+        lastAutomation = now
+        serverAutomationTick(config, automationOutputController)
+      end
     end
   end
 end
