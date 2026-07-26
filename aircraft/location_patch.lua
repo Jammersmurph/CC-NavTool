@@ -5,7 +5,7 @@ function Patch.apply(source)
 
   source = source:gsub("local IntegratedControl = dofile%(ROOT %.%. \"/lib/control_core%.lua\"%)", function()
     count = count + 1
-    return "local IntegratedControl = dofile(ROOT .. \"/lib/control_core.lua\")\nlocal LocationNetwork = dofile(ROOT .. \"/location_network.lua\")"
+    return "local IntegratedControl = dofile(ROOT .. \"/lib/control_core.lua\")\nlocal LocationNetwork = dofile(ROOT .. \"/location_network.lua\")\nlocal Hardware = assert(rawget(_G, \"NavToolHardware\"), \"hardware layer unavailable\")"
   end, 1)
 
   source = source:gsub("  config%.onboardingComplete = true", function()
@@ -28,7 +28,20 @@ function Patch.apply(source)
 
   source = source:gsub('        if request%.command == "ping" then', function()
     count = count + 1
-    return [[        if request.command == "location-list" then
+    return [[        if request.command == "hardware-list" then
+          response = { ok = true, hardware = Hardware.describe(config) }
+        elseif request.command == "hardware-assign" then
+          local okAssign, result = Hardware.assign(config, request)
+          if okAssign then
+            saveConfig(config)
+            response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else
+            response = { ok = false, error = result }
+          end
+        elseif request.command == "hardware-test" then
+          local okTest, result = Hardware.test(config, request.control, request.strength)
+          response = okTest and { ok = true } or { ok = false, error = result }
+        elseif request.command == "location-list" then
           response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following() }
         elseif request.command == "follow-remote" then
           local okFollow, result = LocationNetwork.follow(request.remote)
