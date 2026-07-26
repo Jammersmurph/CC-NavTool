@@ -26,12 +26,9 @@ return {
     precisionSpeed = 0.35,
     slowdownRadius = 50,
     precisionRadius = 3,
-    -- Arrival is evaluated independently on X, Y, and Z. The aircraft must also
-    -- settle below settleVelocity before a route may advance.
     coordinateTolerance = 0.05,
     verticalTolerance = 0.05,
     settleVelocity = 0.05,
-    -- Retained only for compatibility with the legacy fallback controller.
     arrivalRadius = 5,
     stopSpeed = 0.5,
   },
@@ -70,8 +67,6 @@ return {
       integralMinimum = -0.5, integralMaximum = 0.5,
       derivativeFilter = 0.65,
     },
-    -- Used inside precisionRadius. These continuously correct drift after the
-    -- coordinate lock has been achieved instead of shutting the outputs off.
     positionPID = {
       kp = 0.45, ki = 0.015, kd = 0.35,
       minimum = -0.45, maximum = 0.45,
@@ -91,9 +86,6 @@ return {
     },
   },
   orientation = {
-    -- Aircraft-local unit directions before the Sable quaternion is applied.
-    -- Change these when the computer/sub-level axes do not match the craft nose.
-    -- The defaults mean local -Z is the nose and local +Y is the roof.
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
   },
@@ -102,6 +94,13 @@ return {
     channel = "cc-navtool",
     host = "navtool-aircraft",
     sharedKey = "",
+  },
+  -- This option is offered only when Rednet is enabled during first-run setup.
+  -- It requires a wireless or Ender modem and a working GPS network.
+  locationTracking = {
+    enabled = false,
+    port = 9999,
+    timeout = 12,
   },
   outputs = {
     forward = { side = "front", analog = true, inverted = false, maximum = 5 },
