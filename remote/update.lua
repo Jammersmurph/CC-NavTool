@@ -1,6 +1,8 @@
 local ROOT = "/navremote"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
 local FILES = {
+  { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
+  { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
   { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
@@ -11,6 +13,8 @@ local function download(remote, localPath)
   if not response then return false, err end
   local body = response.readAll()
   response.close()
+  local directory = fs.getDir(localPath)
+  if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
   local temporary = localPath .. ".new"
   local file = fs.open(temporary, "w")
   if not file then return false, "Could not write " .. temporary end
@@ -22,11 +26,18 @@ local function download(remote, localPath)
 end
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
-print("Updating navremote from develop...")
+fs.makeDir(ROOT .. "/data")
+fs.makeDir(ROOT .. "/data/profiles")
+print("Updating NavRemote from develop...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)
   if not ok then printError("failed: " .. tostring(err)); return end
   print("done")
 end
-print("Remote update complete. Config preserved.")
+local launcher = fs.open("/navremote.lua", "w")
+if launcher then
+  launcher.write('local a={...}; if a[1]=="legacy" then table.remove(a,1); shell.run("/navremote/navremote.lua", table.unpack(a)) else shell.run("/navremote/controller.lua", table.unpack(a)) end\n')
+  launcher.close()
+end
+print("NavRemote update complete. Config and local controller data preserved.")
