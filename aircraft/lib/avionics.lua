@@ -51,6 +51,52 @@ local function vector(value)
   if x and y and z then return { x = x, y = y, z = z } end
 end
 
+local function magnitude(value)
+  value = vector(value)
+  if not value then return nil end
+  return math.sqrt(value.x * value.x + value.y * value.y + value.z * value.z)
+end
+
+local function normalize(value)
+  value = vector(value)
+  local length = magnitude(value)
+  if not value or not length or length < 0.000001 then return nil end
+  return { x = value.x / length, y = value.y / length, z = value.z / length }
+end
+
+local function cross(a, b)
+  return {
+    x = a.y * b.z - a.z * b.y,
+    y = a.z * b.x - a.x * b.z,
+    z = a.x * b.y - a.y * b.x,
+  }
+end
+
+local function quaternion(value)
+  if type(value) ~= "table" then return nil end
+  local scalar = tonumber(value.a or value.w or value[1])
+  local rawVector = value.v or value.vector
+  local x = tonumber(rawVector and (rawVector.x or rawVector[1]) or value.x or value[2])
+  local y = tonumber(rawVector and (rawVector.y or rawVector[2]) or value.y or value[3])
+  local z = tonumber(rawVector and (rawVector.z or rawVector[3]) or value.z or value[4])
+  if not scalar or not x or not y or not z then return nil end
+  local length = math.sqrt(scalar * scalar + x * x + y * y + z * z)
+  if length < 0.000001 then return nil end
+  return { a = scalar / length, v = { x = x / length, y = y / length, z = z / length } }
+end
+
+local function rotate(q, value)
+  value = vector(value)
+  if not q or not value then return nil end
+  local uv = cross(q.v, value)
+  local uuv = cross(q.v, uv)
+  return {
+    x = value.x + 2 * (q.a * uv.x + uuv.x),
+    y = value.y + 2 * (q.a * uv.y + uuv.y),
+    z = value.z + 2 * (q.a * uv.z + uuv.z),
+  }
+end
+
 local function horizontalHeading(degrees, format, offset)
   degrees = tonumber(degrees)
   if not degrees then return nil end
@@ -61,10 +107,39 @@ local function horizontalHeading(degrees, format, offset)
   return { x = math.sin(angle), y = 0, z = math.cos(angle) }
 end
 
-local function magnitude(value)
-  value = vector(value)
-  if not value then return nil end
-  return math.sqrt(value.x * value.x + value.y * value.y + value.z * value.z)
+local function headingDegrees(heading)
+  heading = normalize({ x = heading and heading.x, y = 0, z = heading and heading.z })
+  if not heading then return nil end
+  local degrees = math.deg(math.atan2(heading.x, heading.z))
+  return (degrees + 180) % 360 - 180
+end
+
+local function attitudeFromPose(rawPose, orientation)
+  if type(rawPose) ~= "table" then return nil end
+  local q = quaternion(rawPose.orientation or rawPose.rotation or rawPose.quaternion)
+  if not q then return nil end
+
+  local localForward = normalize(orientation.forward or { x = 0, y = 0, z = -1 })
+  local localUp = normalize(orientation.up or { x = 0, y = 1, z = 0 })
+  if not localForward or not localUp then return nil end
+  local localRight = normalize(cross(localForward, localUp))
+  if not localRight then return nil end
+
+  local forward = normalize(rotate(q, localForward))
+  local up = normalize(rotate(q, localUp))
+  local right = normalize(rotate(q, localRight))
+  if not forward or not up or not right then return nil end
+
+  local horizontalForward = normalize({ x = forward.x, y = 0, z = forward.z })
+  return {
+    quaternion = q,
+    forward = forward,
+    right = right,
+    up = up,
+    horizontalForward = horizontalForward,
+    source = "cc-sable-quaternion",
+    full3D = true,
+  }
 end
 
 function Avionics.discover(config)
@@ -83,12 +158,12 @@ function Avionics.read(config, discovered, detail)
   discovered = discovered or Avionics.discover(config)
   local orientation = config.orientation or {}
   local state = {
-    source = "create-avionics+sable",
+    source = "telemetry-unavailable",
     peripherals = discovered,
     healthy = false,
   }
 
-  if type(sublevel) == "table" then
+  if config.sublevelEnabled ~= false and type(sublevel) == "table" then
     local ok, rawPose = pcall(function()
       if type(sublevel.getLogicalPose) == "function" then return sublevel.getLogicalPose() end
       if type(sublevel.getLastPose) == "function" then return sublevel.getLastPose() end
@@ -96,6 +171,13 @@ function Avionics.read(config, discovered, detail)
     if ok and rawPose ~= nil then
       state.pose = rawPose
       state.position = vector(rawPose)
+      state.attitude = attitudeFromPose(rawPose, orientation)
+      if state.attitude then
+        state.orientation = state.attitude.quaternion
+        state.heading = state.attitude.horizontalForward
+        state.headingDegrees = headingDegrees(state.heading)
+        state.orientationSource = state.attitude.source
+      end
     end
 
     local okVelocity, rawVelocity = pcall(function()
@@ -110,13 +192,15 @@ function Avionics.read(config, discovered, detail)
     if okAngular then state.angularVelocity = vector(angular) or angular end
   end
 
-  if discovered.navigationTable then
+  -- Create: Avionics remains a fallback and optional source of additional sensors.
+  if discovered.navigationTable and not state.heading then
     state.headingDegrees = tonumber(call(discovered.navigationTable, "getHeading"))
     if not state.headingDegrees then
       local radians = tonumber(call(discovered.navigationTable, "getHeadingRad"))
       if radians then state.headingDegrees = math.deg(radians) end
     end
     state.heading = horizontalHeading(state.headingDegrees, tostring(orientation.yawFormat or "avionics"):lower(), orientation.yawOffset)
+    if state.heading then state.orientationSource = "create-avionics-navigation-table" end
     if detail then state.orientation = call(discovered.navigationTable, "getOrientation") end
   end
 
@@ -125,6 +209,8 @@ function Avionics.read(config, discovered, detail)
     state.verticalSpeed = tonumber(call(discovered.altitudeSensor, "getVerticalSpeed"))
     if state.position and state.altitude then state.position.y = state.altitude end
     if state.velocity and state.verticalSpeed then state.velocity.y = state.verticalSpeed end
+  elseif state.position then
+    state.altitude = state.position.y
   end
 
   if discovered.gimbalSensor then
@@ -138,10 +224,15 @@ function Avionics.read(config, discovered, detail)
   end
 
   local bodyVelocity = {}
+  if state.velocity and state.attitude then
+    bodyVelocity.forward = state.velocity.x * state.attitude.forward.x + state.velocity.y * state.attitude.forward.y + state.velocity.z * state.attitude.forward.z
+    bodyVelocity.right = state.velocity.x * state.attitude.right.x + state.velocity.y * state.attitude.right.y + state.velocity.z * state.attitude.right.z
+    bodyVelocity.up = state.velocity.x * state.attitude.up.x + state.velocity.y * state.attitude.up.y + state.velocity.z * state.attitude.up.z
+  end
   for _, name in ipairs(discovered.velocitySensors or {}) do
     local axis = tostring(call(name, "getAxis") or ""):lower()
-    local speed = tonumber(call(name, "getVelocity"))
-    if axis ~= "" and speed then bodyVelocity[axis] = speed end
+    local axisSpeed = tonumber(call(name, "getVelocity"))
+    if axis ~= "" and axisSpeed then bodyVelocity[axis] = axisSpeed end
   end
   if next(bodyVelocity) then state.bodyVelocity = bodyVelocity end
 
@@ -152,12 +243,25 @@ function Avionics.read(config, discovered, detail)
       state.subLevelId = call(discovered.physicsAssembler, "getSubLevelId")
       state.subLevelName = call(discovered.physicsAssembler, "getSubLevelName")
     end
+  elseif type(sublevel) == "table" and type(sublevel.getMass) == "function" then
+    local okMass, mass = pcall(sublevel.getMass)
+    if okMass then state.mass = tonumber(mass) end
   end
 
   state.speed = magnitude(state.velocity)
+  state.verticalSpeed = state.verticalSpeed or (state.velocity and state.velocity.y)
   state.healthy = state.position ~= nil and state.heading ~= nil
-  state.degraded = state.position == nil or state.heading == nil or state.altitude == nil
+  state.degraded = state.position == nil or state.heading == nil or state.velocity == nil
+  if state.attitude then
+    state.source = "cc-sable"
+  elseif state.heading then
+    state.source = "create-avionics"
+  end
   return state
 end
+
+Avionics.attitudeFromPose = attitudeFromPose
+Avionics.quaternion = quaternion
+Avionics.rotateVector = rotate
 
 return Avionics
