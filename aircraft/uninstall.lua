@@ -1,5 +1,5 @@
 local ROOT = "/navtool"
-local LAUNCHER = "/navtool.lua"
+local LAUNCHERS = { "/navtool.lua", "/flightcore.lua" }
 
 local function clearOutputs()
   local configPath = ROOT .. "/config.lua"
@@ -17,12 +17,14 @@ local function clearOutputs()
 end
 
 print("This will completely remove onboard CC-NavTool.")
-print("It deletes config, targets, waypoints, logs, and launchers.")
+print("It deletes config, targets, routes, flight logs, modules, and launchers.")
 write("Continue? [y/N] ")
 local answer = read():lower()
 if answer ~= "y" and answer ~= "yes" then print("Uninstall cancelled."); return end
 
 clearOutputs()
 if fs.exists(ROOT) then fs.delete(ROOT) end
-if fs.exists(LAUNCHER) then fs.delete(LAUNCHER) end
+for _, launcher in ipairs(LAUNCHERS) do
+  if fs.exists(launcher) then fs.delete(launcher) end
+end
 print("Onboard CC-NavTool uninstalled.")
