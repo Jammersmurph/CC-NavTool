@@ -13,6 +13,20 @@ local oldSettingsIcon = '{ id="settings", label="Settings", glyph={".#.#.","####
 local hardwareIcons = oldSettingsIcon .. '\n  { id="hardware", label="Hardware", glyph={"#.#.#",".###.","#.#.#"} },'
 source = select(1, replacePlainOnce(source, oldSettingsIcon, hardwareIcons))
 
+-- Ten launcher entries need a four-column grid on the 51x19 Advanced Computer.
+local oldIconPosition = [[local function iconPosition(index)
+  local col=(index-1)%3
+  local row=math.floor((index-1)/3)
+  return 16+col*12,3+row*5
+end]]
+local compactIconPosition = [[local function iconPosition(index)
+  local col=(index-1)%4
+  local row=math.floor((index-1)/4)
+  return 14+col*9,3+row*5
+end]]
+source = select(1, replacePlainOnce(source, oldIconPosition, compactIconPosition))
+source = source:gsub('icon.label:sub%(1,10%)','icon.label:sub(1,8)',1)
+
 local hardwarePageSource = [==[local function hardwarePage(data)
   local controls={"forward","reverse","left","right","up","down"}
   local function assignmentText(item)
