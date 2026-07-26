@@ -1,5 +1,44 @@
 local ROOT = "/navremote"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
+local args = { ... }
+
+local function fetchText(url)
+  local response, err = http.get(url)
+  if not response then return nil, err end
+  local body = response.readAll()
+  response.close()
+  return body
+end
+
+local function writeFile(path, body)
+  local directory = fs.getDir(path)
+  if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
+  local temporary = path .. ".new"
+  local file = fs.open(temporary, "w")
+  if not file then return false, "Could not write " .. temporary end
+  file.write(body)
+  file.close()
+  if fs.exists(path) then fs.delete(path) end
+  fs.move(temporary, path)
+  return true
+end
+
+if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
+if not http then printError("HTTP API is disabled."); return end
+
+-- Always execute the newest updater in this same command. This prevents an old
+-- updater from replacing itself and then requiring a second update pass.
+if args[1] ~= "--fresh" then
+  local newest, err = fetchText(BASE .. "update.lua?cache=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))
+  if not newest then printError("Could not download the current updater: " .. tostring(err)); return end
+  local bootstrap = ROOT .. "/update.bootstrap.lua"
+  local ok, writeErr = writeFile(bootstrap, newest)
+  if not ok then printError(writeErr); return end
+  local result = shell.run(bootstrap, "--fresh")
+  if fs.exists(bootstrap) then fs.delete(bootstrap) end
+  return result
+end
+
 local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
@@ -12,39 +51,24 @@ local FILES = {
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 
-local function download(remote, localPath)
-  local response, err = http.get(BASE .. remote)
-  if not response then return false, err end
-  local body = response.readAll()
-  response.close()
-  local directory = fs.getDir(localPath)
-  if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
-  local temporary = localPath .. ".new"
-  local file = fs.open(temporary, "w")
-  if not file then return false, "Could not write " .. temporary end
-  file.write(body)
-  file.close()
-  if fs.exists(localPath) then fs.delete(localPath) end
-  fs.move(temporary, localPath)
-  return true
-end
-
-if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
-if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/data")
 fs.makeDir(ROOT .. "/data/profiles")
 print("Updating NavRemote from develop...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
-  local ok, err = download(item.remote, item.localPath)
-  if not ok then printError("failed: " .. tostring(err)); return end
+  local body, err = fetchText(BASE .. item.remote .. "?cache=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))
+  if not body then printError("failed: " .. tostring(err)); return end
+  local ok, writeErr = writeFile(item.localPath, body)
+  if not ok then printError("failed: " .. tostring(writeErr)); return end
   print("done")
 end
-for _, stale in ipairs({"ui_runtime.lua", "navremote.lua"}) do
+
+for _, stale in ipairs({"ui_runtime.lua", "navremote.lua", "update.bootstrap.lua"}) do
   local path = ROOT .. "/" .. stale
   if fs.exists(path) then fs.delete(path); print("  removed stale " .. stale) end
 end
+
 local launcher = fs.open("/navremote.lua", "w")
 if not launcher then printError("Could not update /navremote.lua"); return end
 launcher.write('shell.run("/navremote/runtime.lua", ...)\n')
