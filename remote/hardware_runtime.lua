@@ -12,8 +12,9 @@ local first,last = source:find(readAnchor,1,true)
 if not first then printError("Hardware runtime could not find controller source anchor."); return false end
 source = source:sub(1,first-1)..injected..source:sub(last+1)
 
-local dispatcher = 'elseif id=="settings" then settingsPage(data) end'
-local extended = 'elseif id=="settings" then settingsPage(data)\n  elseif id=="hardware" then hardwarePage(data) end'
+local dispatcher = [[  '  elseif id=="settings" then settingsPage(data) end',]]
+local extended = [[  '  elseif id=="settings" then settingsPage(data)',
+  '  elseif id=="hardware" then hardwarePage(data) end',]]
 first,last = source:find(dispatcher,1,true)
 if not first then printError("Hardware runtime could not extend page dispatcher."); return false end
 source = source:sub(1,first-1)..extended..source:sub(last+1)
