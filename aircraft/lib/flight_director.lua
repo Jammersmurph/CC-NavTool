@@ -10,46 +10,74 @@ local function vector(value)
   if x and y and z then return { x = x, y = y, z = z } end
 end
 
+local function horizontalSpeed(state)
+  local velocity = vector(state and state.velocity)
+  if not velocity then return 0 end
+  return math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+end
+
+local function finalTarget(target, navigation)
+  local requested = vector(target)
+  if not requested then return nil end
+  local following = type(target) == "table" and target.dynamic == true
+  return {
+    x = requested.x,
+    y = following and (requested.y + (tonumber(navigation.followHeightOffset) or 10)) or requested.y,
+    z = requested.z,
+  }, following, requested
+end
+
 local function stagedTarget(state, target, config)
   config = config or {}
   local navigation = config.navigation or {}
   local position = vector(state and state.position)
-  local requested = vector(target)
-  if not position or not requested then return requested, nil end
+  local final, following, requested = finalTarget(target, navigation)
+  if not position or not final then return final, nil end
 
-  local dx, dz = requested.x - position.x, requested.z - position.z
+  local dx, dz = final.x - position.x, final.z - position.z
   local horizontalDistance = math.sqrt(dx * dx + dz * dz)
-  local following = type(target) == "table" and target.dynamic == true
-  local transitionRadius
-  if following then
-    transitionRadius = math.max(0.1, tonumber(navigation.followHorizontalRadius) or 10)
-  else
-    transitionRadius = math.max(0.1, tonumber(navigation.verticalTransitionRadius) or 3)
-  end
-
+  local driftSpeed = horizontalSpeed(state)
+  local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
+  local settleVelocity = math.max(0, tonumber(navigation.horizontalSettleVelocity) or tonumber(navigation.settleVelocity) or 0.05)
+  local transitionRadius = following
+    and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
+    or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
   local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 300
+
+  local horizontallyLocked = math.abs(dx) <= horizontalTolerance
+    and math.abs(dz) <= horizontalTolerance
+    and driftSpeed <= settleVelocity
+
   local desiredY
   local phase
-  if horizontalDistance > transitionRadius then
+  if horizontallyLocked then
+    desiredY = final.y
+    phase = following and "follow-offset" or "final-altitude"
+  elseif horizontalDistance > transitionRadius then
     desiredY = cruiseAltitude
     phase = "horizontal-cruise"
-  elseif following then
-    desiredY = requested.y + (tonumber(navigation.followHeightOffset) or 10)
-    phase = "follow-offset"
   else
-    desiredY = requested.y
-    phase = "final-altitude"
+    -- Inside the precision approach envelope but not exactly centered, freeze the
+    -- current altitude. This prevents a diagonal descent and immediately suspends
+    -- descent if the craft is pushed away from the waypoint.
+    desiredY = position.y
+    phase = "horizontal-lock"
   end
 
   return {
-    x = requested.x,
+    x = final.x,
     y = desiredY,
-    z = requested.z,
+    z = final.z,
   }, {
     requested = requested,
+    finalTarget = final,
     phase = phase,
     following = following,
     horizontalDistance = horizontalDistance,
+    horizontalSpeed = driftSpeed,
+    horizontallyLocked = horizontallyLocked,
+    horizontalTolerance = horizontalTolerance,
+    settleVelocity = settleVelocity,
     transitionRadius = transitionRadius,
     cruiseAltitude = cruiseAltitude,
   }
@@ -63,20 +91,16 @@ function Director.arrivalStatus(state, target, config)
   config = config or {}
   local navigation = config.navigation or {}
   local position = vector(state and state.position)
-  local navigationTarget, stage = stagedTarget(state, target, config)
-  target = vector(navigationTarget)
-  if not position or not target then return false, nil end
+  local targetPosition = finalTarget(target, navigation)
+  if not position or not targetPosition then return false, nil end
 
-  -- Minecraft positions and physics telemetry are floating point values. Requiring
-  -- bit-for-bit equality can make arrival mathematically unreachable, so precision
-  -- is defined as a very small per-axis envelope. It may be tightened in config.
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
   local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.05)
 
-  local dx = target.x - position.x
-  local dy = target.y - position.y
-  local dz = target.z - position.z
+  local dx = targetPosition.x - position.x
+  local dy = targetPosition.y - position.y
+  local dz = targetPosition.z - position.z
   local velocity = vector(state and state.velocity)
   local settled = true
   local currentSpeed = 0
@@ -99,9 +123,7 @@ function Director.arrivalStatus(state, target, config)
     horizontalTolerance = horizontalTolerance,
     verticalTolerance = verticalTolerance,
     velocityTolerance = velocityTolerance,
-    phase = stage and stage.phase or nil,
-    requestedTarget = stage and stage.requested or nil,
-    navigationTarget = target,
+    navigationTarget = targetPosition,
   }
 end
 
@@ -125,9 +147,13 @@ function Director.solve(state, target, config)
   local precisionSpeed = tonumber(navigation.precisionSpeed) or 0.35
   local slowdownRadius = math.max(1, tonumber(navigation.slowdownRadius) or 50)
   local precisionRadius = math.max(0.1, tonumber(navigation.precisionRadius) or 3)
-  local speedRatio = clamp(distance / slowdownRadius, 0, 1)
+
+  -- Horizontal propulsion must depend only on horizontal error. A large altitude
+  -- difference must never produce forward thrust after X/Z have been acquired.
+  local speedRatio = clamp(horizontalDistance / slowdownRadius, 0, 1)
   local desiredSpeed = precisionSpeed + (cruiseSpeed - precisionSpeed) * speedRatio
-  if distance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
+  if horizontalDistance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
+  if horizontalDistance <= (stage and stage.horizontalTolerance or 0.05) then desiredSpeed = 0 end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
@@ -145,6 +171,9 @@ function Director.solve(state, target, config)
     arrival = arrival,
     arrived = arrived,
     altitudePhase = stage and stage.phase or nil,
+    horizontallyLocked = stage and stage.horizontallyLocked or false,
+    horizontalSpeed = stage and stage.horizontalSpeed or nil,
+    horizontalTolerance = stage and stage.horizontalTolerance or nil,
     transitionRadius = stage and stage.transitionRadius or nil,
   }
 end
