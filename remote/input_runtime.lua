@@ -71,7 +71,7 @@ local injected = table.concat({
   '    if action=="radius" or action=="refresh" or action=="strength" then saveData(data) end',
   '  end',
   'end]=]',
-  'source = source:gsub("local function settingsPage%(data%).-\nend\n\nlocal function advanceAutomation", function() return newSettings.."\n\nlocal function advanceAutomation" end, 1)',
+  'source = source:gsub("local function settingsPage%(data%).-\\nend\\n\\nlocal function advanceAutomation", function() return newSettings.."\\n\\nlocal function advanceAutomation" end, 1)',
   '',
   'local pageDispatcher = [=[local function openSelectedPage(data)',
   '  local id=icons[selected].id',
