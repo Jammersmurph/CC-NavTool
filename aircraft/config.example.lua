@@ -1,6 +1,6 @@
 return {
   onboardingComplete = false,
-  updateInterval = 0.10,
+  updateInterval = 0.25,
   sublevelEnabled = true,
   telemetryPeripheral = nil,
   orientationPeripheral = nil,

@@ -14,7 +14,7 @@ local function loadConfig()
         channel = config.channel or config.protocol or "cc-navtool",
         host = config.host or "navtool-aircraft",
         sharedKey = config.sharedKey or "",
-        timeout = config.timeout or 3,
+        timeout = config.timeout or 5,
       }
     }
     config.activeProfile = "default"
@@ -120,13 +120,13 @@ local function addProfile()
   end
   write("Shared key: ")
   local key = read("*")
-  write("Timeout seconds [3]: ")
+  write("Timeout seconds [5]: ")
   local timeout = tonumber(read())
   config.profiles[name] = {
     host = host ~= "" and host or "navtool-aircraft",
     channel = channel,
     sharedKey = key,
-    timeout = timeout or 3,
+    timeout = timeout or 5,
   }
   config.activeProfile = name
   saveConfig(config)
@@ -201,10 +201,17 @@ local function request(command, extra)
   payload.command = command
   payload.key = connection.sharedKey or ""
   rednet.send(hostId, payload, channel)
-  local sender, response = rednet.receive(channel, connection.timeout or 3)
-  if sender ~= hostId or type(response) ~= "table" then return nil, "No valid response" end
-  if not response.ok then return nil, response.error or "Command rejected" end
-  return response
+  local timeout = math.max(5, tonumber(connection.timeout) or 5)
+  local deadline = os.clock() + timeout
+  repeat
+    local remaining = math.max(0.05, deadline - os.clock())
+    local sender, response = rednet.receive(channel, remaining)
+    if sender == hostId and type(response) == "table" then
+      if not response.ok then return nil, response.error or "Command rejected" end
+      return response
+    end
+  until os.clock() >= deadline
+  return nil, "No response from aircraft"
 end
 
 local function screen()
@@ -614,10 +621,10 @@ local function menu()
   local autoRefreshTimer
   local statusData = {}
   local statusErr
-  local function refreshStatus()
+  local function refreshStatus(silent)
     local response, requestErr = request("status")
     statusData = response and response.data or statusData or {}
-    statusErr = requestErr
+    if response then statusErr = nil elseif not silent then statusErr = requestErr end
   end
   local function hasHeldManualControls()
     for _, held in pairs(heldControls) do if held then return true end end
@@ -627,7 +634,7 @@ local function menu()
     if hasHeldManualControls() and not manualTimer then manualTimer = os.startTimer(0.15) end
   end
   local function scheduleAutoRefresh(delay)
-    autoRefreshTimer = os.startTimer(delay or 1.0)
+    autoRefreshTimer = os.startTimer(delay or 2.0)
   end
   drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
   scheduleAutoRefresh(0.1)
@@ -650,7 +657,7 @@ local function menu()
     elseif event == "timer" and side == autoRefreshTimer then
       autoRefreshTimer = nil
       if buttons["menu-nav"] then
-        refreshStatus()
+        refreshStatus(true)
         drawMenu(target, nil, activeMenu, statusData, statusErr)
       end
       scheduleAutoRefresh()
