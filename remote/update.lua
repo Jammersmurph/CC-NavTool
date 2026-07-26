@@ -26,8 +26,6 @@ end
 if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
 if not http then printError("HTTP API is disabled."); return end
 
--- Always execute the newest updater in this same command. This prevents an old
--- updater from replacing itself and then requiring a second update pass.
 if args[1] ~= "--fresh" then
   local newest, err = fetchText(BASE .. "update.lua?cache=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))
   if not newest then printError("Could not download the current updater: " .. tostring(err)); return end
@@ -43,6 +41,8 @@ local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
   { remote = "input_runtime.lua", localPath = ROOT .. "/input_runtime.lua" },
+  { remote = "hardware_patch.lua", localPath = ROOT .. "/hardware_patch.lua" },
+  { remote = "hardware_runtime.lua", localPath = ROOT .. "/hardware_runtime.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
