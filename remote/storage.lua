@@ -43,7 +43,7 @@ end
 
 local function defaults(name)
   return {
-    version = 1,
+    version = 2,
     profile = name,
     target = nil,
     targets = {},
@@ -52,8 +52,11 @@ local function defaults(name)
     activeRoute = nil,
     activeSchedule = nil,
     preferences = {
-      desktopCategory = "NavRemote",
+      desktopCategory = "HOME",
       selectedIcon = 1,
+      autoRefresh = true,
+      arrivalRadius = 5,
+      manualStrength = 2,
     },
     lastStatus = nil,
     eventLog = {},
@@ -70,11 +73,17 @@ function Storage.load(profileName)
   Storage.init()
   local data = read(profilePath(profileName), defaults(profileName))
   if type(data) ~= "table" then data = defaults(profileName) end
+  data.version = math.max(tonumber(data.version) or 1, 2)
   data.profile = profileName
   data.targets = type(data.targets) == "table" and data.targets or {}
   data.routes = type(data.routes) == "table" and data.routes or {}
   data.schedules = type(data.schedules) == "table" and data.schedules or {}
   data.preferences = type(data.preferences) == "table" and data.preferences or {}
+  if data.preferences.desktopCategory == nil then data.preferences.desktopCategory = "HOME" end
+  if data.preferences.selectedIcon == nil then data.preferences.selectedIcon = 1 end
+  if data.preferences.autoRefresh == nil then data.preferences.autoRefresh = true end
+  if data.preferences.arrivalRadius == nil then data.preferences.arrivalRadius = 5 end
+  if data.preferences.manualStrength == nil then data.preferences.manualStrength = 2 end
   data.eventLog = type(data.eventLog) == "table" and data.eventLog or {}
   return data
 end
@@ -82,6 +91,7 @@ end
 function Storage.save(profileName, data)
   Storage.init()
   data.profile = profileName
+  data.version = 2
   local ok, err = write(profilePath(profileName), data)
   if not ok then return false, err end
   local index = read(INDEX_PATH, { profiles = {} })
