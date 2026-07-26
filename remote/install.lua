@@ -13,17 +13,22 @@ local FILES = {
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 
+local cacheToken = tostring(os.epoch and os.epoch("utc") or os.clock())
+
 local function download(remote, localPath)
-  local response, err = http.get(BASE .. remote)
+  local response, err = http.get(BASE .. remote .. "?cache=" .. cacheToken)
   if not response then return false, err end
   local body = response.readAll()
   response.close()
   local directory = fs.getDir(localPath)
   if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
-  local file = fs.open(localPath, "w")
-  if not file then return false, "Could not write " .. localPath end
+  local temporary = localPath .. ".new"
+  local file = fs.open(temporary, "w")
+  if not file then return false, "Could not write " .. temporary end
   file.write(body)
   file.close()
+  if fs.exists(localPath) then fs.delete(localPath) end
+  fs.move(temporary, localPath)
   return true
 end
 
@@ -46,7 +51,7 @@ if not fs.exists(ROOT .. "/config.lua") then
 else
   print("  Preserved remote configuration")
 end
-for _, stale in ipairs({"ui_runtime.lua", "navremote.lua"}) do
+for _, stale in ipairs({"ui_runtime.lua", "navremote.lua", "update.bootstrap.lua"}) do
   local path = ROOT .. "/" .. stale
   if fs.exists(path) then fs.delete(path) end
 end
