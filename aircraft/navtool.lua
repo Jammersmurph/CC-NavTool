@@ -1015,8 +1015,11 @@ local function server(config)
       local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
       if now - lastAutomation >= interval then
         lastAutomation = now
-        local ok, err = pcall(serverAutomationTick, config, automationOutputController)
-        if not ok then printError("Automation tick failed: " .. tostring(err)) end
+        local mode = loadMode().mode or "standby"
+        if mode ~= "standby" or loadActiveSchedule() then
+          local ok, err = pcall(serverAutomationTick, config, automationOutputController)
+          if not ok then printError("Automation tick failed: " .. tostring(err)) end
+        end
       end
     end
   end
@@ -1206,7 +1209,7 @@ local function automationOutputs(config, state)
 end
 
 serverAutomationTick = function(config, outputController)
-  local state = snapshot(config, { library = false })
+  local state = snapshot(config, { library = false, gps = false })
   local active = state.activeSchedule
   local navigation = type(config.navigation) == "table" and config.navigation or {}
   local arrivalRadius = tonumber(navigation.arrivalRadius) or 5
@@ -1217,27 +1220,27 @@ serverAutomationTick = function(config, outputController)
       saveActiveSchedule(nil)
       saveMode("standby")
       clearOutputs(config)
-      state = snapshot(config, { library = false })
+      state = snapshot(config, { library = false, gps = false })
     else
       local index = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
       local stop = schedule.stops[index]
       if not state.target or state.target.name ~= stop.name or tonumber(state.target.x) ~= tonumber(stop.x) or tonumber(state.target.y) ~= tonumber(stop.y) or tonumber(state.target.z) ~= tonumber(stop.z) then
         saveTarget(stop)
         saveMode("navigate")
-        state = snapshot(config, { library = false })
+        state = snapshot(config, { library = false, gps = false })
       end
       if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
         if index >= #schedule.stops then
           saveActiveSchedule(nil)
           saveMode("standby")
           clearOutputs(config)
-          state = snapshot(config, { library = false })
+          state = snapshot(config, { library = false, gps = false })
         else
           active.index = index + 1
           saveActiveSchedule(active)
           saveTarget(schedule.stops[active.index])
           saveMode("navigate")
-          state = snapshot(config, { library = false })
+          state = snapshot(config, { library = false, gps = false })
         end
       end
     end
