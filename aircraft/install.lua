@@ -3,10 +3,12 @@ local ROOT = "/navtool"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
+  { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "flightcore.lua", localPath = ROOT .. "/flightcore.lua" },
   { remote = "lib/pid.lua", localPath = ROOT .. "/lib/pid.lua" },
   { remote = "lib/avionics.lua", localPath = ROOT .. "/lib/avionics.lua" },
   { remote = "lib/flight_director.lua", localPath = ROOT .. "/lib/flight_director.lua" },
+  { remote = "lib/control_core.lua", localPath = ROOT .. "/lib/control_core.lua" },
   { remote = "lib/recorder.lua", localPath = ROOT .. "/lib/recorder.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
@@ -60,7 +62,7 @@ if not fs.exists(ROOT .. "/waypoints.db") then
 end
 
 local launcher = fs.open("/navtool.lua", "w")
-launcher.write('shell.run("/navtool/navtool.lua", ...)\n')
+launcher.write('shell.run("/navtool/runtime.lua", ...)\n')
 launcher.close()
 
 local flightLauncher = fs.open("/flightcore.lua", "w")
@@ -69,6 +71,7 @@ flightLauncher.close()
 
 print("Onboard navtool installed.")
 print("Run dashboard/server: navtool")
-print("Run Avionics flight core: flightcore")
+print("The existing UI now uses the Avionics controller automatically.")
+print("Standalone test console: flightcore")
 print("Uninstall: navtool uninstall")
 print("Remote networking is disabled by default.")
