@@ -71,6 +71,20 @@ return {
       integralMinimum = -0.5, integralMaximum = 0.5,
       derivativeFilter = 0.65,
     },
+    -- Used inside precisionRadius. These continuously correct drift after the
+    -- coordinate lock has been achieved instead of shutting the outputs off.
+    positionPID = {
+      kp = 0.45, ki = 0.015, kd = 0.35,
+      minimum = -0.45, maximum = 0.45,
+      integralMinimum = -0.3, integralMaximum = 0.3,
+      derivativeFilter = 0.7,
+    },
+    positionVerticalPID = {
+      kp = 0.22, ki = 0.012, kd = 0.3,
+      minimum = -0.5, maximum = 0.5,
+      integralMinimum = -0.25, integralMaximum = 0.25,
+      derivativeFilter = 0.7,
+    },
     recorder = {
       enabled = true,
       flushInterval = 2,
