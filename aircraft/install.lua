@@ -37,9 +37,8 @@ end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
-fs.makeDir(ROOT .. "/profiles")
 
-print("Installing onboard CC-NavTool...")
+print("Installing headless NavTool aircraft agent...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)
@@ -55,23 +54,15 @@ else
   print("  Preserved onboard configuration")
 end
 
-if not fs.exists(ROOT .. "/waypoints.db") then
-  local file = fs.open(ROOT .. "/waypoints.db", "w")
-  file.write("{}\n")
-  file.close()
-end
-
 local launcher = fs.open("/navtool.lua", "w")
-launcher.write('shell.run("/navtool/runtime.lua", ...)\n')
+launcher.write('local a={...}; local c=a[1] and tostring(a[1]):lower() or "server"; if c=="update" then shell.run("/navtool/update.lua") elseif c=="uninstall" then shell.run("/navtool/uninstall.lua") elseif c=="version" then local f=fs.open("/navtool/version.txt","r"); if f then print(f.readAll()); f.close() end else shell.run("/navtool/runtime.lua", "server") end\n')
 launcher.close()
 
 local flightLauncher = fs.open("/flightcore.lua", "w")
 flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
 flightLauncher.close()
 
-print("Onboard navtool installed.")
-print("Run dashboard/server: navtool")
-print("The existing UI now uses the Avionics controller automatically.")
-print("Standalone test console: flightcore")
-print("Uninstall: navtool uninstall")
-print("Remote networking is disabled by default.")
+print("Headless NavTool aircraft agent installed.")
+print("Start: navtool  (or navtool server)")
+print("Control and saved navigation data now belong to NavRemote.")
+print("Standalone flight test console: flightcore")
