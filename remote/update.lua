@@ -7,11 +7,11 @@ local FILES = {
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
-  { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
+
 local function download(remote, localPath)
   local response, err = http.get(BASE .. remote)
   if not response then return false, err end
@@ -28,6 +28,8 @@ local function download(remote, localPath)
   fs.move(temporary, localPath)
   return true
 end
+
+if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/data")
@@ -39,11 +41,13 @@ for _, item in ipairs(FILES) do
   if not ok then printError("failed: " .. tostring(err)); return end
   print("done")
 end
-local launcher = fs.open("/navremote.lua", "w")
-if launcher then
-  launcher.write('local a={...}; if a[1]=="legacy" then table.remove(a,1); shell.run("/navremote/navremote.lua", table.unpack(a)) else shell.run("/navremote/runtime.lua", table.unpack(a)) end\n')
-  launcher.close()
+for _, stale in ipairs({"ui_runtime.lua", "navremote.lua"}) do
+  local path = ROOT .. "/" .. stale
+  if fs.exists(path) then fs.delete(path); print("  removed stale " .. stale) end
 end
-print("NavRemote update complete. Config and local controller data preserved.")
-print("Mouse launcher controls and Q-to-back are enabled on Advanced Computers.")
-print("The location beacon runs silently when a wireless modem and GPS are available.")
+local launcher = fs.open("/navremote.lua", "w")
+if not launcher then printError("Could not update /navremote.lua"); return end
+launcher.write('shell.run("/navremote/runtime.lua", ...)\n')
+launcher.close()
+print("NavRemote update complete. Config and controller data preserved.")
+print("Advanced Computer mouse controls are enabled. Q goes back; X quits.")
