@@ -2,6 +2,8 @@ local ROOT = "/navremote"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
 local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
+  { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
+  { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
   { remote = "navremote.lua", localPath = ROOT .. "/navremote.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
@@ -37,7 +39,8 @@ for _, item in ipairs(FILES) do
 end
 local launcher = fs.open("/navremote.lua", "w")
 if launcher then
-  launcher.write('local a={...}; if a[1]=="legacy" then table.remove(a,1); shell.run("/navremote/navremote.lua", table.unpack(a)) else shell.run("/navremote/controller.lua", table.unpack(a)) end\n')
+  launcher.write('local a={...}; if a[1]=="legacy" then table.remove(a,1); shell.run("/navremote/navremote.lua", table.unpack(a)) else shell.run("/navremote/runtime.lua", table.unpack(a)) end\n')
   launcher.close()
 end
 print("NavRemote update complete. Config and local controller data preserved.")
+print("The location beacon runs silently when a wireless modem and GPS are available.")
