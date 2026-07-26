@@ -135,15 +135,15 @@ Some features may also work with other Create Aeronautics integrations, provided
 
 ## How It Works
 
-CC-NavTool reads telemetry from the best available source, in this order: CC:Sable's `sublevel` API, compatible Create: Avionics peripherals, legacy telemetry peripherals, then standard CC:Tweaked GPS.
+CC-NavTool is designed for servers with **Create: Avionics** installed. The normal telemetry path is CC:Sable's `sublevel` API for pose/velocity plus Create: Avionics peripherals for heading and aircraft sensors. Legacy telemetry peripherals and standard CC:Tweaked GPS remain fallback paths only.
 
 With only a modem attached, you must provide a working CC:Tweaked GPS network. In that setup, `navtool` uses `gps.locate()` for position and estimates velocity from repeated GPS fixes. GPS requires separate fixed GPS host computers/beacons with known coordinates. GPS position alone does not include craft rotation, so GPS-only steering can only infer heading once the craft is moving.
 
-For less janky stationary steering, use the Create: Avionics `navigation_table`. It exposes `getHeading()` and `getOrientation()`, so navtool can know craft yaw while stationary instead of bootstrapping from GPS velocity. The `gimbal_sensor` is still useful for pitch/roll/angular-rate telemetry, but its docs correctly note that gravity alone cannot measure yaw.
+For stationary steering, use the Create: Avionics `navigation_table`. Remote auto-refresh uses the lightweight `live-status` command, which reads fast navigation-table heading and avoids heavyweight diagnostic reads. The `gimbal_sensor` is still useful for pitch/roll/angular-rate diagnostics, but its docs correctly note that gravity alone cannot measure yaw.
 
 When CC:Sable is present, navtool also reads the global `sublevel` API (`getLogicalPose`, `getLinearVelocity`, `getAngularVelocity`, `getMass`) for full craft pose/velocity while the computer is on a Sable sub-level. This is not a peripheral, so navtool checks it separately from `peripheral.getNames()`.
 
-If multiple Avionics blocks are attached, set these in `/navtool/config.lua`: `navigationTablePeripheral`, `gimbalSensorPeripheral`, `altitudeSensorPeripheral`, or `physicsAssemblerPeripheral`.
+If multiple Avionics blocks are attached, set these in `/navtool/config.lua`: `navigationTablePeripheral`, `gimbalSensorPeripheral`, `altitudeSensorPeripheral`, or `physicsAssemblerPeripheral`. Heavy optional reads like physics assembler metadata, velocity-sensor sweeps, and full gimbal diagnostics are collected by `navtool status`/`navtool diagnose`, not normal remote auto-refresh or the automation hot path.
 
 If your modpack includes a compatible aircraft telemetry peripheral, it may also provide:
 
