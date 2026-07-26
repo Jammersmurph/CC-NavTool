@@ -2,10 +2,12 @@ local ROOT = "/navtool"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
+  { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "flightcore.lua", localPath = ROOT .. "/flightcore.lua" },
   { remote = "lib/pid.lua", localPath = ROOT .. "/lib/pid.lua" },
   { remote = "lib/avionics.lua", localPath = ROOT .. "/lib/avionics.lua" },
   { remote = "lib/flight_director.lua", localPath = ROOT .. "/lib/flight_director.lua" },
+  { remote = "lib/control_core.lua", localPath = ROOT .. "/lib/control_core.lua" },
   { remote = "lib/recorder.lua", localPath = ROOT .. "/lib/recorder.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
@@ -41,11 +43,17 @@ for _, item in ipairs(FILES) do
   print("done")
 end
 
+local launcher = fs.open("/navtool.lua", "w")
+if launcher then
+  launcher.write('shell.run("/navtool/runtime.lua", ...)\n')
+  launcher.close()
+end
+
 local flightLauncher = fs.open("/flightcore.lua", "w")
 if flightLauncher then
   flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
   flightLauncher.close()
 end
 
-print("Onboard update complete. Config, routes, and logs preserved.")
-print("Run 'flightcore' to test the Avionics-native controller.")
+print("Onboard update complete. Config, routes, UI, and logs preserved.")
+print("The existing navtool UI now uses the integrated Avionics controller.")
