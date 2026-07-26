@@ -104,7 +104,7 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
   setAxis(self.config, commands, self.positionLateral:update(lateralError, dt, lateralRate), "right", "left")
   setAxis(self.config, commands, self.positionVertical:update(dy, dt, verticalRate), "up", "down")
 
-  notes[#notes + 1] = string.format("precision x %.4f y %.4f z %.4f", guidance.axisError.x, guidance.axisError.y, guidance.axisError.z)
+  notes[#notes + 1] = string.format("precision x %.4f y %.4f z %.4f", guidance.xError or 0, guidance.yError or 0, guidance.zError or 0)
   notes[#notes + 1] = guidance.arrived and "coordinate lock" or "precision positioning"
   return true
 end

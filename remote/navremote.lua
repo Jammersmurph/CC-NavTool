@@ -202,7 +202,7 @@ local function request(command, extra)
     hostId = rednet.lookup(channel, host)
     if hostId then hostCache[cacheKey] = hostId end
   end
-  if not hostId then return nil, "Aircraft host not found" end
+  if not hostId then return nil, "Aircraft host not found: " .. host .. " on " .. channel end
   local payload = extra or {}
   payload.command = command
   payload.key = connection.sharedKey or ""
@@ -650,7 +650,7 @@ local function menu()
       if hostId then hostCache[cacheKey] = hostId end
     end
     if not hostId then
-      if not silent then statusErr = "Aircraft host not found" end
+      if not silent then statusErr = "Aircraft host not found: " .. host .. " on " .. channel end
       pendingLive = { deadline = os.clock() + 5.0 }
       return
     end
