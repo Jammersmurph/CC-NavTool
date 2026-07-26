@@ -22,7 +22,15 @@ return {
   navigation = {
     cruiseSpeed = 12,
     approachSpeed = 4,
+    precisionSpeed = 0.35,
     slowdownRadius = 50,
+    precisionRadius = 3,
+    -- Arrival is evaluated independently on X, Y, and Z. The aircraft must also
+    -- settle below settleVelocity before a route may advance.
+    coordinateTolerance = 0.05,
+    verticalTolerance = 0.05,
+    settleVelocity = 0.05,
+    -- Retained only for compatibility with the legacy fallback controller.
     arrivalRadius = 5,
     stopSpeed = 0.5,
   },
@@ -41,6 +49,7 @@ return {
     outputHoldReleaseGrace = 1.0,
   },
   flightControl = {
+    enabled = true,
     interval = 0.05,
     minimumThrustAlignment = 0.25,
     hoverVelocityGain = 0.18,
