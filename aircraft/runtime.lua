@@ -18,18 +18,44 @@ if type(rawget(_G, "sublevel")) ~= "table" then
   return
 end
 
+-- Open every modem visible through the local peripheral bus and wired modem LAN
+-- before NavTool starts. The legacy openModem helper may return after inspecting one
+-- modem, but all wired, wireless, and Ender interfaces are already active by then.
+local openedModems = {}
+for _, name in ipairs(peripheral.getNames()) do
+  local isModem = false
+  if type(peripheral.hasType) == "function" then
+    local ok, result = pcall(peripheral.hasType, name, "modem")
+    isModem = ok and result == true
+  end
+  if not isModem then
+    local ok, result = pcall(peripheral.getType, name)
+    if ok then
+      if type(result) == "table" then
+        for _, kind in ipairs(result) do
+          if kind == "modem" then isModem = true; break end
+        end
+      else
+        isModem = result == "modem"
+      end
+    end
+  end
+  if isModem then
+    local alreadyOpen = false
+    local checkOk, checkValue = pcall(rednet.isOpen, name)
+    if checkOk then alreadyOpen = checkValue == true end
+    local opened = alreadyOpen
+    if not opened then opened = pcall(rednet.open, name) end
+    if opened then openedModems[#openedModems + 1] = name end
+  end
+end
+
 local function readAll(path)
   local file = fs.open(path, "r")
   if not file then return nil, "Could not open " .. path end
   local value = file.readAll()
   file.close()
   return value
-end
-
-local function replacePlainOnce(text, needle, replacement)
-  local first, last = text:find(needle, 1, true)
-  if not first then return text, 0 end
-  return text:sub(1, first - 1) .. replacement .. text:sub(last + 1), 1
 end
 
 local source, err = readAll(SOURCE_PATH)
@@ -151,45 +177,6 @@ source = source:gsub(
   1
 )
 
--- Open every modem visible to the aircraft computer, including wireless and Ender
--- modems exposed as remote peripherals by a wired modem network. The legacy helper
--- returned after the first modem, which commonly selected only the local wired modem.
-local oldOpenModem = [[local function openModem()
-  for _, side in ipairs(peripheral.getNames()) do
-    if peripheral.getType(side) == "modem" then
-      if not rednet.isOpen(side) then rednet.open(side) end
-      return side
-    end
-  end
-end]]
-local networkOpenModem = [[local function openModem()
-  local firstOpened
-  local preferredWireless
-  for _, name in ipairs(peripheral.getNames()) do
-    if peripheralHasType(name, "modem") then
-      local alreadyOpen = false
-      local openCheckOk, openValue = pcall(rednet.isOpen, name)
-      if openCheckOk then alreadyOpen = openValue == true end
-
-      local opened = alreadyOpen
-      if not opened then
-        local openOk = pcall(rednet.open, name)
-        opened = openOk == true
-      end
-
-      if opened then
-        firstOpened = firstOpened or name
-        local wirelessOk, wireless = pcall(peripheral.call, name, "isWireless")
-        if wirelessOk and wireless == true then preferredWireless = preferredWireless or name end
-      end
-    end
-  end
-  return preferredWireless or firstOpened
-end]]
-local modemReplacement
-source, modemReplacement = replacePlainOnce(source, oldOpenModem, networkOpenModem)
-replacements = replacements + modemReplacement
-
 -- Networking may be disabled during first-run setup. In that case NavTool still runs
 -- the local flight service and automation loop; it simply does not expose Rednet.
 source = source:gsub(
@@ -214,9 +201,9 @@ local locationReplacements
 source, locationReplacements = LocationPatch.apply(source)
 replacements = replacements + locationReplacements
 
-if replacements ~= 19 then
+if replacements ~= 18 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 19 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 18 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
