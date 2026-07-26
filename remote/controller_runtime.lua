@@ -1,0 +1,250 @@
+local ROOT = "/navremote"
+local SOURCE = ROOT .. "/controller.lua"
+
+local function readAll(path)
+  local file = fs.open(path, "r")
+  if not file then return nil, "Could not open " .. path end
+  local value = file.readAll()
+  file.close()
+  return value
+end
+
+local source, err = readAll(SOURCE)
+if not source then printError(err); return end
+
+local additions = [[
+local connectionState = { online=false, changed=nil, error=nil, latency=nil }
+
+local function nowMs()
+  return os.epoch and os.epoch("utc") or math.floor(os.clock()*1000)
+end
+
+local function ageText(ms)
+  if not ms then return "unknown" end
+  if ms < 1000 then return tostring(math.floor(ms)) .. "ms" end
+  return string.format("%.1fs", ms / 1000)
+end
+
+local function connectionQuality(ms)
+  if not ms then return "UNKNOWN", colors.lightGray end
+  if ms <= 1500 then return "EXCELLENT", colors.lime end
+  if ms <= 4000 then return "GOOD", colors.green end
+  if ms <= 8000 then return "WEAK", colors.yellow end
+  return "LOST", colors.red
+end
+
+local function discoverAircraft(channel)
+  local found = {}
+  local ok, result = pcall(rednet.lookup, channel or "cc-navtool")
+  if not ok then return found end
+  if type(result) == "number" then
+    found[#found+1] = { id=result, host="navtool-aircraft" }
+  elseif type(result) == "table" then
+    for key, value in pairs(result) do
+      if type(key)=="string" and type(value)=="number" then found[#found+1]={host=key,id=value}
+      elseif type(key)=="number" and type(value)=="string" then found[#found+1]={host=value,id=key} end
+    end
+  end
+  table.sort(found,function(a,b) return tostring(a.host)<tostring(b.host) end)
+  return found
+end
+
+local function chooseAircraft(channel)
+  clear(colors.black); header("Discover aircraft")
+  writeAt(3,3,"Scanning "..tostring(channel).."...",colors.cyan)
+  local found=discoverAircraft(channel)
+  if #found==0 then writeAt(3,5,"No aircraft found.",colors.yellow); waitBack(); return nil end
+  for i,item in ipairs(found) do
+    if i>12 then break end
+    writeAt(3,i+4,tostring(i)..". "..tostring(item.host).."  ID "..tostring(item.id),colors.white)
+  end
+  footer("Number: import  Esc: back")
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return nil end
+    local index=key-keys.one+1
+    if found[index] then return found[index] end
+  end
+end
+
+local function chooseLocationRemote(title)
+  local response,err=request("location-list")
+  if not response then message=err or "Location tracking unavailable"; return nil end
+  local remotes=response.remotes or {}
+  clear(colors.black); header(title or "NavRemotes")
+  if #remotes==0 then writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow); waitBack(); return nil end
+  local current=nowMs()
+  for i,item in ipairs(remotes) do
+    if i>12 then break end
+    local age=current-(tonumber(item.seen) or current)
+    local quality,color=connectionQuality(age)
+    writeAt(3,i+3,tostring(i)..". "..tostring(item.label or item.id),colors.white)
+    writeAt(28,i+3,quality,color)
+    writeAt(39,i+3,ageText(age),colors.lightGray)
+  end
+  footer("Number: select  Esc: back")
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return nil end
+    local index=key-keys.one+1
+    if remotes[index] then return remotes[index] end
+  end
+end
+]]
+
+local anchor = "local function localData() return Storage.load(config.activeProfile or \"default\") end"
+local count=0
+source=source:gsub(anchor,function() count=count+1; return additions.."\n"..anchor end,1)
+
+local newRefresh = [[local function refresh(data,silent)
+  local started=nowMs()
+  local response,err = request("live-status")
+  local wasOnline=connectionState.online
+  if response then
+    connectionState.online=true
+    connectionState.error=nil
+    connectionState.latency=nowMs()-started
+    connectionState.changed=nowMs()
+    data.lastStatus=response.data
+    data.lastContact=nowMs()
+    data.lastLatency=connectionState.latency
+    if not wasOnline then Storage.log(data,"INFO","Aircraft connected") end
+    if not silent then Storage.log(data,"INFO","Telemetry refreshed in "..ageText(connectionState.latency)) end
+    saveData(data)
+    return response.data
+  end
+  connectionState.online=false
+  connectionState.error=err
+  connectionState.changed=nowMs()
+  if wasOnline then Storage.log(data,"WARN","Aircraft connection lost: "..tostring(err)) end
+  if not silent then Storage.log(data,"WARN",err); saveData(data) end
+  return data.lastStatus,err
+end]]
+source=source:gsub("local function refresh%(data,silent%).-\nend\n\nlocal function iconPosition",function(block)
+  count=count+1
+  return newRefresh.."\n\nlocal function iconPosition"
+end,1)
+
+local newModes = [[local function modesPage(data)
+  local modes={"standby","navigate","hover","return-home"}
+  clear(colors.black); header("Flight modes")
+  for i,mode in ipairs(modes) do writeAt(4,i+3,tostring(i)..". "..mode,colors.white) end
+  writeAt(4,9,"F. Follow a NavRemote",colors.cyan)
+  writeAt(4,10,"H. Auto Home to NavRemote",colors.cyan)
+  writeAt(4,11,"S. Stop following",colors.yellow)
+  footer("1-4/F/H/S: activate  Esc: back")
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return end
+    local index=key-keys.one+1
+    if modes[index] then
+      local ok,e=request("set-mode",{mode=modes[index]})
+      message=ok and ("Mode: "..modes[index]) or e
+      Storage.log(data,ok and "INFO" or "WARN",message); saveData(data); return
+    elseif key==keys.f then
+      local remote=chooseLocationRemote("Follow NavRemote")
+      if remote then
+        local ok,e=request("follow-remote",{remote=remote.id})
+        message=ok and ("Following "..tostring(remote.label or remote.id)) or e
+        Storage.log(data,ok and "INFO" or "WARN",message); saveData(data)
+      end
+      return
+    elseif key==keys.h then
+      local remote=chooseLocationRemote("Auto Home")
+      if remote then
+        local ok,e=request("auto-home",{remote=remote.id})
+        message=ok and ("Auto Home: "..tostring(remote.label or remote.id)) or e
+        Storage.log(data,ok and "INFO" or "WARN",message); saveData(data)
+      end
+      return
+    elseif key==keys.s then
+      local ok,e=request("stop-follow")
+      message=ok and "Follow stopped" or e
+      Storage.log(data,ok and "INFO" or "WARN",message); saveData(data); return
+    end
+  end
+end]]
+source=source:gsub("local function modesPage%(%).-\nend\n\nlocal function manualPage",function()
+  count=count+1
+  return newModes.."\n\nlocal function manualPage"
+end,1)
+
+local newDashboard = [[local function dashboard(data)
+  local status,err=refresh(data)
+  local location=request("location-list")
+  clear(colors.black); header("Dashboard",err and "[ OFFLINE ]" or "[ SABLE ONLINE ]")
+  status=status or {}; local p=status.position or {}; local v=status.velocity or {}
+  local quality,qColor=connectionQuality(data.lastLatency)
+  writeAt(3,3,"Aircraft",colors.cyan); writeAt(15,3,config.activeProfile or "none")
+  writeAt(3,4,"Host",colors.cyan); writeAt(15,4,(profile() and profile().host) or "none")
+  writeAt(3,5,"Link",colors.cyan); writeAt(15,5,err and "OFFLINE" or quality,err and colors.red or qColor)
+  writeAt(29,5,"Ping "..ageText(data.lastLatency),colors.lightGray)
+  writeAt(3,7,"Mode"); writeAt(15,7,status.mode or "unknown",colors.lime)
+  writeAt(3,8,"Target"); writeAt(15,8,status.target and (status.target.name or "coordinates") or "none",colors.yellow)
+  if location and location.following then writeAt(3,9,"Following"); writeAt(15,9,tostring(location.following),colors.cyan) end
+  writeAt(3,11,"Position",colors.cyan)
+  writeAt(3,12,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,12,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,12,string.format("Z %8.1f",tonumber(p.z) or 0))
+  writeAt(3,14,"Velocity",colors.cyan)
+  writeAt(3,15,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,15,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,15,string.format("Z %8.2f",tonumber(v.z) or 0))
+  footer("R: refresh  Esc: back")
+  while true do local _,key=os.pullEvent("key"); if key==keys.escape then return elseif key==keys.r then return dashboard(data) end end
+end]]
+source=source:gsub("local function dashboard%(data%).-\nend\n\nlocal function profilesPage",function()
+  count=count+1
+  return newDashboard.."\n\nlocal function profilesPage"
+end,1)
+
+local newProfiles = [[local function profilesPage()
+  while true do
+    clear(colors.black); header("Aircraft")
+    local names=Storage.names(config.profiles)
+    for i,name in ipairs(names) do
+      local marker=name==config.activeProfile and ">" or " "
+      writeAt(3,i+3,marker.." "..tostring(i)..". "..name.."  "..tostring(config.profiles[name].host or ""),name==config.activeProfile and colors.lime or colors.white)
+    end
+    footer("Number: select  A:add  F:find  E:edit  D:delete  Esc:back")
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.f then
+      local channel=prompt("Discovery channel",(profile() and profile().channel) or "cc-navtool")
+      local found=chooseAircraft(channel)
+      if found then
+        local name=prompt("Aircraft profile",found.host)
+        local shared=prompt("Shared key","",true)
+        config.profiles[name]={channel=channel,host=found.host,sharedKey=shared,timeout=3,computerId=found.id}
+        config.activeProfile=name; saveConfig(); Storage.load(name); message="Imported "..found.host; return
+      end
+    elseif key==keys.a then
+      local name=prompt("Aircraft name")
+      if name and name~="" then
+        config.profiles[name]={channel=prompt("Channel","cc-navtool"),host=prompt("Host","navtool-aircraft"),sharedKey=prompt("Shared key","",true),timeout=tonumber(prompt("Timeout","3")) or 3}
+        config.activeProfile=name; saveConfig(); Storage.load(name); message="Added "..name; return
+      end
+    elseif key==keys.e then
+      local name=prompt("Aircraft to edit",config.activeProfile)
+      local p=config.profiles[name]
+      if p then p.channel=prompt("Channel",p.channel or "cc-navtool"); p.host=prompt("Host",p.host or "navtool-aircraft"); local k=prompt("Shared key (blank keeps)","",true); if k~="" then p.sharedKey=k end; p.timeout=tonumber(prompt("Timeout",p.timeout or 3)) or 3; saveConfig() end
+    elseif key==keys.d then
+      local name=prompt("Aircraft to delete")
+      if config.profiles[name] and confirm("Delete "..name) then config.profiles[name]=nil; if config.activeProfile==name then config.activeProfile=next(config.profiles) end; saveConfig(); return end
+    else
+      local index=key-keys.one+1
+      if names[index] then config.activeProfile=names[index]; saveConfig(); selected=1; message="Selected "..names[index]; return end
+    end
+  end
+end]]
+source=source:gsub("local function profilesPage%(%).-\nend\n\nlocal function logsPage",function()
+  count=count+1
+  return newProfiles.."\n\nlocal function logsPage"
+end,1)
+
+source=source:gsub("modesPage%(%)", "modesPage(data)")
+
+if count ~= 5 then
+  printError("NavRemote pre-test patch failed: expected 5 sections, found "..tostring(count))
+  return
+end
+
+local program,loadErr=load(source,"@"..SOURCE,"t",_ENV)
+if not program then printError("Could not load NavRemote: "..tostring(loadErr)); return end
+return program(...)
