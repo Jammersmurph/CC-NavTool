@@ -1,20 +1,19 @@
 return {
   onboardingComplete = false,
   updateInterval = 0.05,
-  -- When enabled, CC-NavTool prefers CC: Sable pose, quaternion orientation,
-  -- linear velocity, angular velocity, and mass over optional Avionics sensors.
+
+  -- CC: Sable is required. CC-NavTool reads pose, quaternion orientation,
+  -- linear velocity, angular velocity, and available physics data from sublevel.
   sublevelEnabled = true,
-  telemetryPeripheral = nil,
-  orientationPeripheral = nil,
+
+  -- Optional Create: Avionics peripherals. These may enrich diagnostics and status
+  -- displays, but they are not used to satisfy the flight-control telemetry contract.
   navigationTablePeripheral = nil,
   gimbalSensorPeripheral = nil,
   altitudeSensorPeripheral = nil,
   physicsAssemblerPeripheral = nil,
   monitorPeripheral = nil,
-  gps = {
-    enabled = true,
-    timeout = 0.5,
-  },
+
   safety = {
     maximumOutput = 5,
     maximumRemotePulse = 2.0,
@@ -44,8 +43,6 @@ return {
     steeringDeadband = 0.12,
     steeringScale = 0.8,
     steeringInvert = false,
-    headingMinimumSpeed = 0.25,
-    headingUnknownForwardRatio = 0.25,
     outputHoldAfter = 0.6,
     outputPulseReleaseGrace = 0.25,
     outputHoldReleaseGrace = 1.0,
@@ -99,11 +96,6 @@ return {
     -- The defaults mean local -Z is the nose and local +Y is the roof.
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
-
-    -- Used only by numeric-yaw fallback sensors such as a navigation table.
-    -- Quaternion orientation does not require yawOffset.
-    yawFormat = "avionics",
-    yawOffset = 0,
   },
   network = {
     enabled = false,
