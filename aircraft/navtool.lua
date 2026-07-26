@@ -786,7 +786,7 @@ snapshot = function(config, options)
   local position = (subState and subState.position) or (legacyState and legacyState.position)
   local velocity = (subState and subState.velocity) or (legacyState and legacyState.velocity)
   local gpsData, gpsErr
-  if not position or not velocity then gpsData, gpsErr = gpsFix(config) end
+  if options.gps ~= false and (not position or not velocity) then gpsData, gpsErr = gpsFix(config) end
   position = position or (gpsData and gpsData.position)
   velocity = velocity or (gpsData and gpsData.velocity)
   if position and avionicsState and tonumber(avionicsState.altitude) then
@@ -874,8 +874,10 @@ local function server(config)
         local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
         local response = { ok = false, error = "unauthorized" }
         if valid then
-        if request.command == "live-status" then
-          response = { ok = true, data = snapshot(config, { library = false, schedule = false }) }
+        if request.command == "ping" then
+          response = { ok = true, pong = true, id = os.getComputerID and os.getComputerID() or nil }
+        elseif request.command == "live-status" then
+          response = { ok = true, data = snapshot(config, { library = false, schedule = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
         elseif request.command == "set-target" and type(request.target) == "table" then

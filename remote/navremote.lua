@@ -334,6 +334,13 @@ local function showStatus(target)
   writeAt(target, 2, 14, "Schedules: " .. tostring(#(data.scheduleNames or {})))
 end
 
+local function pingAircraft()
+  local response, err = request("ping")
+  if not response then printError(err); return end
+  print("Aircraft replied.")
+  if response.id then print("Computer ID: " .. tostring(response.id)) end
+end
+
 local function setTarget()
   write("Name: ")
   local name = read()
@@ -761,6 +768,7 @@ local function menu()
 end
 
 if command == "status" then showStatus()
+elseif command == "ping" then pingAircraft()
 elseif command == "target" then setTarget()
 elseif command == "waypoint" then saveWaypoint()
 elseif command == "schedule" then createSchedule()
