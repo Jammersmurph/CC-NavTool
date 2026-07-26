@@ -1,6 +1,6 @@
 -- CC-NavTool compatibility runtime
--- Keeps the existing navtool UI and command surface intact while routing
--- automation calculations through the Sable-native controller.
+-- Keeps the existing command surface intact while routing automation calculations
+-- through the Sable-native controller and launching the headless service by default.
 
 local ROOT = "/navtool"
 local SOURCE_PATH = ROOT .. "/navtool.lua"
@@ -126,9 +126,47 @@ source = source:gsub(
   1
 )
 
-if replacements ~= 8 then
+-- Plain `navtool` is the canonical headless-service launcher. Keep `navtool server`
+-- as a compatibility alias and route the old UI aliases to the same service.
+source = source:gsub(
+  'local command = %(args%[1%] or "ui"%):lower%(%)',
+  function()
+    replacements = replacements + 1
+    return 'local command = (args[1] or "server"):lower()'
+  end,
+  1
+)
+source = source:gsub(
+  'elseif command == "ui" or command == "run" then interface%(config%)',
+  function()
+    replacements = replacements + 1
+    return 'elseif command == "ui" or command == "run" then server(config, args[2] == "debug")'
+  end,
+  1
+)
+
+-- Networking may be disabled during first-run setup. In that case NavTool still runs
+-- the local flight service and automation loop; it simply does not expose Rednet.
+source = source:gsub(
+  'if not config%.network or not config%.network%.enabled then\n    printError%("Networking is disabled in /navtool/config%.lua"%)\n    return\n  end',
+  function()
+    replacements = replacements + 1
+    return [[if not config.network or not config.network.enabled then
+    print("navtool local flight service online")
+    print("Remote networking: disabled")
+    local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
+    while true do
+      serverAutomationTick(config)
+      sleep(interval)
+    end
+  end]]
+  end,
+  1
+)
+
+if replacements ~= 11 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 8 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 11 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
