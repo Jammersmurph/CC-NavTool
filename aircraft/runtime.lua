@@ -145,6 +145,45 @@ source = source:gsub(
   1
 )
 
+-- Open every modem visible to the aircraft computer, including wireless and Ender
+-- modems exposed as remote peripherals by a wired modem network. The legacy helper
+-- returned after the first modem, which commonly selected only the local wired modem.
+local oldOpenModem = [[local function openModem()
+  for _, side in ipairs(peripheral.getNames()) do
+    if peripheral.getType(side) == "modem" then
+      if not rednet.isOpen(side) then rednet.open(side) end
+      return side
+    end
+  end
+end]]
+local networkOpenModem = [[local function openModem()
+  local firstOpened
+  local preferredWireless
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheralHasType(name, "modem") then
+      local alreadyOpen = false
+      local openCheckOk, openValue = pcall(rednet.isOpen, name)
+      if openCheckOk then alreadyOpen = openValue == true end
+
+      local opened = alreadyOpen
+      if not opened then
+        local openOk = pcall(rednet.open, name)
+        opened = openOk == true
+      end
+
+      if opened then
+        firstOpened = firstOpened or name
+        local wirelessOk, wireless = pcall(peripheral.call, name, "isWireless")
+        if wirelessOk and wireless == true then preferredWireless = preferredWireless or name end
+      end
+    end
+  end
+  return preferredWireless or firstOpened
+end]]
+local modemReplacement
+source, modemReplacement = source:gsub(oldOpenModem, networkOpenModem, 1)
+replacements = replacements + modemReplacement
+
 -- Networking may be disabled during first-run setup. In that case NavTool still runs
 -- the local flight service and automation loop; it simply does not expose Rednet.
 source = source:gsub(
@@ -169,9 +208,9 @@ local locationReplacements
 source, locationReplacements = LocationPatch.apply(source)
 replacements = replacements + locationReplacements
 
-if replacements ~= 18 then
+if replacements ~= 19 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 18 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 19 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
