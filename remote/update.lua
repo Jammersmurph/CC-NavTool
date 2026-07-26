@@ -3,7 +3,7 @@ local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/
 local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
-  { remote = "ui_runtime.lua", localPath = ROOT .. "/ui_runtime.lua" },
+  { remote = "input_runtime.lua", localPath = ROOT .. "/input_runtime.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
   { remote = "location_beacon.lua", localPath = ROOT .. "/location_beacon.lua" },
   { remote = "storage.lua", localPath = ROOT .. "/storage.lua" },
@@ -45,6 +45,5 @@ if launcher then
   launcher.close()
 end
 print("NavRemote update complete. Config and local controller data preserved.")
-print("Q goes back, X quits, and desktop icons support mouse clicks.")
-print("Aircraft discovery is available from the Aircraft page with F.")
+print("Mouse launcher controls and Q-to-back are enabled on Advanced Computers.")
 print("The location beacon runs silently when a wireless modem and GPS are available.")
