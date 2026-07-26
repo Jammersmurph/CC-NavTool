@@ -840,7 +840,7 @@ snapshot = function(config, options)
   }
 end
 
-local function server(config)
+local function server(config, debug)
   if not config.network or not config.network.enabled then
     printError("Networking is disabled in /navtool/config.lua")
     return
@@ -870,6 +870,7 @@ local function server(config)
     local sender, request = rednet.receive(channel, 0.05)
     clearExpiredManual()
     if type(request) == "table" then
+      if debug then print("Request from " .. tostring(sender) .. ": " .. tostring(request.command)) end
       local ok, err = pcall(function()
         local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
         local response = { ok = false, error = "unauthorized" }
@@ -1005,6 +1006,7 @@ local function server(config)
         end
         end
         rednet.send(sender, response, channel)
+        if debug then print("Reply to " .. tostring(sender) .. ": " .. tostring(response.ok)) end
       end)
       if not ok then
         printError("Request failed: " .. tostring(err))
@@ -1571,7 +1573,7 @@ if command == "setup" or command == "onboarding" then onboarding(config, true); 
 config = onboarding(config, false)
 if command == "status" then status(config)
 elseif command == "diagnose" then diagnose(config)
-elseif command == "server" then server(config)
+elseif command == "server" then server(config, args[2] == "debug")
 elseif command == "ui" or command == "run" then interface(config)
 elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
