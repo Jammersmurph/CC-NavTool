@@ -26,6 +26,12 @@ local function readAll(path)
   return value
 end
 
+local function replacePlainOnce(text, needle, replacement)
+  local first, last = text:find(needle, 1, true)
+  if not first then return text, 0 end
+  return text:sub(1, first - 1) .. replacement .. text:sub(last + 1), 1
+end
+
 local source, err = readAll(SOURCE_PATH)
 if not source then printError(err); return end
 
@@ -181,7 +187,7 @@ local networkOpenModem = [[local function openModem()
   return preferredWireless or firstOpened
 end]]
 local modemReplacement
-source, modemReplacement = source:gsub(oldOpenModem, networkOpenModem, 1)
+source, modemReplacement = replacePlainOnce(source, oldOpenModem, networkOpenModem)
 replacements = replacements + modemReplacement
 
 -- Networking may be disabled during first-run setup. In that case NavTool still runs
