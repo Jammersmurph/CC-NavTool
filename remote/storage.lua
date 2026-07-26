@@ -17,13 +17,45 @@ local function read(path, fallback)
   return value
 end
 
+-- CC:Tweaked's serializer rejects cycles and repeated table references. Network
+-- telemetry may reuse vector/quaternion tables, so save an independent tree.
+local function cloneSerializable(value, ancestors)
+  local valueType = type(value)
+  if valueType == "nil" or valueType == "boolean" or valueType == "number" or valueType == "string" then
+    return value
+  end
+  if valueType ~= "table" then return tostring(value) end
+
+  ancestors = ancestors or {}
+  if ancestors[value] then return "<cycle>" end
+  ancestors[value] = true
+
+  local copy = {}
+  for key, item in pairs(value) do
+    local cleanKey = cloneSerializable(key, ancestors)
+    if type(cleanKey) == "table" then cleanKey = tostring(cleanKey) end
+    copy[cleanKey] = cloneSerializable(item, ancestors)
+  end
+
+  ancestors[value] = nil
+  return copy
+end
+
 local function write(path, value)
   local directory = fs.getDir(path)
   if directory ~= "" then ensureDir(directory) end
   local temporary = path .. ".new"
   local file = fs.open(temporary, "w")
   if not file then return false, "Could not write " .. path end
-  file.write(textutils.serialize(value))
+
+  local ok, serialized = pcall(textutils.serialize, cloneSerializable(value))
+  if not ok then
+    file.close()
+    if fs.exists(temporary) then fs.delete(temporary) end
+    return false, tostring(serialized)
+  end
+
+  file.write(serialized)
   file.close()
   if fs.exists(path) then fs.delete(path) end
   fs.move(temporary, path)
