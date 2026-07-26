@@ -19,6 +19,7 @@ if not source then printError(err); return end
 local anchor = "local lastGpsFix\n"
 local injection = [[local lastGpsFix
 local IntegratedControl = dofile(ROOT .. "/lib/control_core.lua")
+local PrecisionDirector = dofile(ROOT .. "/lib/flight_director.lua")
 local integratedController
 
 local function integratedAutomationOutputs(config, state, fallback)
@@ -29,6 +30,11 @@ local function integratedAutomationOutputs(config, state, fallback)
   local outputs, notes, handled = integratedController:outputs(state)
   if handled then return outputs or {}, notes or {} end
   return fallback(config, state)
+end
+
+local function exactPositionReached(config, state, target)
+  local reached = PrecisionDirector.arrivalStatus(state, target or state.target, config)
+  return reached == true
 end
 ]]
 
@@ -56,9 +62,17 @@ source = source:gsub(
   1
 )
 
-if replacements ~= 3 then
+source = source:gsub(
+  "state%.distanceToTarget and state%.distanceToTarget <= arrivalRadius",
+  function()
+    replacements = replacements + 1
+    return "exactPositionReached(config, state, state.target)"
+  end
+)
+
+if replacements ~= 5 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 3 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 5 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
