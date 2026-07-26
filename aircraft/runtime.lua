@@ -164,9 +164,14 @@ source = source:gsub(
   1
 )
 
-if replacements ~= 11 then
+local LocationPatch = dofile(ROOT .. "/location_patch.lua")
+local locationReplacements
+source, locationReplacements = LocationPatch.apply(source)
+replacements = replacements + locationReplacements
+
+if replacements ~= 17 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 11 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 17 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
