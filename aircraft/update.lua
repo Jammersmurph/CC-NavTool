@@ -2,6 +2,11 @@ local ROOT = "/navtool"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
+  { remote = "flightcore.lua", localPath = ROOT .. "/flightcore.lua" },
+  { remote = "lib/pid.lua", localPath = ROOT .. "/lib/pid.lua" },
+  { remote = "lib/avionics.lua", localPath = ROOT .. "/lib/avionics.lua" },
+  { remote = "lib/flight_director.lua", localPath = ROOT .. "/lib/flight_director.lua" },
+  { remote = "lib/recorder.lua", localPath = ROOT .. "/lib/recorder.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
@@ -12,6 +17,8 @@ local function download(remote, localPath)
   if not response then return false, err end
   local body = response.readAll()
   response.close()
+  local directory = fs.getDir(localPath)
+  if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
   local temporary = localPath .. ".new"
   local file = fs.open(temporary, "w")
   if not file then return false, "Could not write " .. temporary end
@@ -24,6 +31,8 @@ end
 
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
+fs.makeDir(ROOT .. "/lib")
+fs.makeDir(ROOT .. "/logs")
 print("Updating onboard navtool from develop...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
@@ -31,4 +40,12 @@ for _, item in ipairs(FILES) do
   if not ok then printError("failed: " .. tostring(err)); return end
   print("done")
 end
-print("Onboard update complete. Config and waypoints preserved.")
+
+local flightLauncher = fs.open("/flightcore.lua", "w")
+if flightLauncher then
+  flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
+  flightLauncher.close()
+end
+
+print("Onboard update complete. Config, routes, and logs preserved.")
+print("Run 'flightcore' to test the Avionics-native controller.")
