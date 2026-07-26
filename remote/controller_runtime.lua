@@ -9,6 +9,12 @@ local function readAll(path)
   return value
 end
 
+local function replacePlainOnce(text, needle, replacement)
+  local first, last = text:find(needle, 1, true)
+  if not first then return text, false end
+  return text:sub(1, first - 1) .. replacement .. text:sub(last + 1), true
+end
+
 local source, err = readAll(SOURCE)
 if not source then printError(err); return end
 
@@ -94,7 +100,9 @@ end
 
 local anchor = "local function localData() return Storage.load(config.activeProfile or \"default\") end"
 local count=0
-source=source:gsub(anchor,function() count=count+1; return additions.."\n"..anchor end,1)
+local replaced
+source,replaced=replacePlainOnce(source,anchor,additions.."\n"..anchor)
+if replaced then count=count+1 end
 
 local newRefresh = [[local function refresh(data,silent)
   local started=nowMs()
