@@ -1,6 +1,6 @@
 return {
   activeProfile = "default",
-  autoRefresh = false,
+  autoRefresh = true,
   profiles = {
     default = {
       channel = "cc-navtool",

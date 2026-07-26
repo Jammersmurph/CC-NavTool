@@ -4,6 +4,7 @@ local CONFIG_PATH = ROOT .. "/config.lua"
 local args = { ... }
 local buttons = {}
 local config
+local hostCache = {}
 
 local function loadConfig()
   local ok, config = pcall(dofile, CONFIG_PATH)
@@ -195,7 +196,12 @@ local function request(command, extra)
   local connection = activeProfile()
   local channel = connection.channel or connection.protocol or "cc-navtool"
   local host = connection.host or "navtool-aircraft"
-  local hostId = rednet.lookup(channel, host)
+  local cacheKey = channel .. "\0" .. host
+  local hostId = hostCache[cacheKey]
+  if not hostId then
+    hostId = rednet.lookup(channel, host)
+    if hostId then hostCache[cacheKey] = hostId end
+  end
   if not hostId then return nil, "Aircraft host not found" end
   local payload = extra or {}
   payload.command = command
@@ -211,6 +217,7 @@ local function request(command, extra)
       return response
     end
   until os.clock() >= deadline
+  hostCache[cacheKey] = nil
   return nil, "No response from aircraft"
 end
 
@@ -619,13 +626,37 @@ local function menu()
   local heldControls = {}
   local manualTimer
   local autoRefreshTimer
-  local autoRefreshEnabled = config.autoRefresh == true or activeProfile().autoRefresh == true
+  local profile = activeProfile()
+  local autoRefreshEnabled = config.autoRefresh ~= false and profile.autoRefresh ~= false
+  local pendingLive
   local statusData = {}
   local statusErr
   local function refreshStatus(silent)
-    local response, requestErr = request("status")
+    local response, requestErr = request("live-status")
     statusData = response and response.data or statusData or {}
     if response then statusErr = nil elseif not silent then statusErr = requestErr end
+  end
+  local function sendLiveStatus(silent)
+    if pendingLive and pendingLive.deadline > os.clock() then return end
+    if pendingLive and pendingLive.cacheKey then hostCache[pendingLive.cacheKey] = nil end
+    pendingLive = nil
+    local connection = activeProfile()
+    local channel = connection.channel or connection.protocol or "cc-navtool"
+    local host = connection.host or "navtool-aircraft"
+    local cacheKey = channel .. "\0" .. host
+    local hostId = hostCache[cacheKey]
+    if not hostId then
+      hostId = rednet.lookup(channel, host)
+      if hostId then hostCache[cacheKey] = hostId end
+    end
+    if not hostId then
+      if not silent then statusErr = "Aircraft host not found" end
+      pendingLive = { deadline = os.clock() + 5.0 }
+      return
+    end
+    local payload = { command = "live-status", key = connection.sharedKey or "" }
+    rednet.send(hostId, payload, channel)
+    pendingLive = { hostId = hostId, channel = channel, cacheKey = cacheKey, deadline = os.clock() + math.max(1, tonumber(connection.timeout) or 3) }
   end
   local function hasHeldManualControls()
     for _, held in pairs(heldControls) do if held then return true end end
@@ -635,13 +666,26 @@ local function menu()
     if hasHeldManualControls() and not manualTimer then manualTimer = os.startTimer(0.15) end
   end
   local function scheduleAutoRefresh(delay)
-    if autoRefreshEnabled then autoRefreshTimer = os.startTimer(delay or 5.0) end
+    if autoRefreshEnabled then autoRefreshTimer = os.startTimer(delay or 1.0) end
   end
   drawMenu(target, "Press REFRESH for live aircraft status.", activeMenu, statusData, statusErr)
-  scheduleAutoRefresh(5.0)
+  scheduleAutoRefresh(0.1)
   while true do
     local event, side, x, y = os.pullEvent()
     if event == "key" and side == keys.q then return end
+    if event == "rednet_message" and pendingLive then
+      local sender, response, channel = side, x, y
+      if sender == pendingLive.hostId and channel == pendingLive.channel and type(response) == "table" then
+        pendingLive = nil
+        if response.ok then
+          statusData = response.data or statusData or {}
+          statusErr = nil
+          if buttons["menu-nav"] then drawMenu(target, nil, activeMenu, statusData, statusErr) end
+        else
+          statusErr = response.error or "Command rejected"
+        end
+      end
+    end
     if event == "mouse_click" then
       -- mouse_click returns button, x, y. Keep the terminal coordinates.
     elseif event == "monitor_touch" and side ~= monitorName then
@@ -658,8 +702,7 @@ local function menu()
     elseif event == "timer" and side == autoRefreshTimer then
       autoRefreshTimer = nil
       if buttons["menu-nav"] then
-        refreshStatus(true)
-        drawMenu(target, nil, activeMenu, statusData, statusErr)
+        sendLiveStatus(true)
       end
       scheduleAutoRefresh()
     elseif buttons["manual-forward"] and (event == "key" or event == "key_up") then

@@ -457,23 +457,25 @@ local function avionicsNames(config)
   }
 end
 
-local function avionicsSnapshot(config)
+local function avionicsSnapshot(config, detail)
   local names = avionicsNames(config)
   local state = { names = names }
   if names.navigationTable then
     state.navigationTable = names.navigationTable
     state.navHeading = callPeripheral(names.navigationTable, "getHeading")
-    state.navHeadingRad = callPeripheral(names.navigationTable, "getHeadingRad")
-    state.navOrientation = callPeripheral(names.navigationTable, "getOrientation")
     if state.navHeading ~= nil then
       state.heading, state.headingSource = headingFromYaw(config, state.navHeading, "navigation_table.getHeading")
-    elseif state.navHeadingRad ~= nil then
-      state.heading, state.headingSource = headingFromYaw(config, math.deg(tonumber(state.navHeadingRad) or 0), "navigation_table.getHeadingRad")
-    else
-      state.heading, state.headingSource = headingFromOrientationValue(config, state.navOrientation, "navigation_table.getOrientation")
+    elseif detail then
+      state.navHeadingRad = callPeripheral(names.navigationTable, "getHeadingRad")
+      state.navOrientation = callPeripheral(names.navigationTable, "getOrientation")
+      if state.navHeadingRad ~= nil then
+        state.heading, state.headingSource = headingFromYaw(config, math.deg(tonumber(state.navHeadingRad) or 0), "navigation_table.getHeadingRad")
+      else
+        state.heading, state.headingSource = headingFromOrientationValue(config, state.navOrientation, "navigation_table.getOrientation")
+      end
     end
   end
-  if names.gimbalSensor then
+  if names.gimbalSensor and detail then
     state.gimbalSensor = names.gimbalSensor
     state.gimbalAngles = callPeripheral(names.gimbalSensor, "getAngles")
     state.gimbalAngularRates = callPeripheral(names.gimbalSensor, "getAngularRates")
@@ -485,20 +487,22 @@ local function avionicsSnapshot(config)
     state.altitude = callPeripheral(names.altitudeSensor, "getHeight")
     state.verticalSpeed = callPeripheral(names.altitudeSensor, "getVerticalSpeed")
   end
-  if names.physicsAssembler then
+  if names.physicsAssembler and detail then
     state.physicsAssembler = names.physicsAssembler
     state.assemblerMass = callPeripheral(names.physicsAssembler, "getMass")
     state.centerOfMass = callPeripheral(names.physicsAssembler, "getCenterOfMass")
     state.subLevelId = callPeripheral(names.physicsAssembler, "getSubLevelId")
     state.subLevelName = callPeripheral(names.physicsAssembler, "getSubLevelName")
   end
-  local bodyVelocity = {}
-  for _, name in ipairs(names.velocitySensors or {}) do
-    local axis = callPeripheral(name, "getAxis")
-    local value = callPeripheral(name, "getVelocity")
-    if axis and value ~= nil then bodyVelocity[tostring(axis):lower()] = value end
+  if detail then
+    local bodyVelocity = {}
+    for _, name in ipairs(names.velocitySensors or {}) do
+      local axis = callPeripheral(name, "getAxis")
+      local value = callPeripheral(name, "getVelocity")
+      if axis and value ~= nil then bodyVelocity[tostring(axis):lower()] = value end
+    end
+    if bodyVelocity.x or bodyVelocity.y or bodyVelocity.z then state.bodyVelocity = bodyVelocity end
   end
-  if bodyVelocity.x or bodyVelocity.y or bodyVelocity.z then state.bodyVelocity = bodyVelocity end
   return state
 end
 
@@ -582,6 +586,7 @@ local function distance(a, b)
 end
 
 local gpsFix
+local snapshot
 
 local function promptTarget()
   term.clear()
@@ -608,12 +613,8 @@ local function promptWaypoint(config)
   write("Name: ")
   local name = read()
   if name == "" then printError("Name is required."); sleep(1.5); return end
-  local telemetry = telemetryName(config)
-  local position = telemetry and extractVector(callFirst(telemetry, { "getLogicalPose", "getPose" }))
-  if not position then
-    local fix = gpsFix(config)
-    position = fix and fix.position
-  end
+  local current = snapshot(config)
+  local position = current.position
   if position then
     print("Use current position " .. string.format("%.1f %.1f %.1f", position.x, position.y, position.z) .. "? [Y/n]")
     local answer = read():lower()
@@ -763,16 +764,20 @@ local function legacyPeripheralSnapshot(name)
   }
 end
 
-local function snapshot(config)
+snapshot = function(config, options)
+  options = options or {}
   local name = telemetryName(config)
   local subState = sublevelSnapshot(config)
   local legacyState = legacyPeripheralSnapshot(name)
-  local avionicsState = avionicsSnapshot(config)
+  local avionicsState = avionicsSnapshot(config, options.detail == true)
   local orientationPeripheral = orientationName(config, name) or (avionicsState and avionicsState.navigationTable)
   local target = loadTarget()
-  local waypoints, names = waypointList()
-  local schedules, scheduleNames = scheduleList()
-  local activeSchedule = loadActiveSchedule()
+  local waypoints, names, schedules, scheduleNames
+  local includeLibrary = options.library ~= false
+  local includeSchedule = options.schedule ~= false
+  if includeLibrary then waypoints, names = waypointList() else waypoints, names = {}, {} end
+  if includeLibrary then schedules, scheduleNames = scheduleList() else schedules, scheduleNames = {}, {} end
+  local activeSchedule = includeSchedule and loadActiveSchedule() or nil
   local mode = loadMode().mode or "standby"
   local heading, headingSource, rawOrientation = orientationHeading(config, orientationPeripheral)
   if avionicsState and avionicsState.heading then
@@ -867,7 +872,9 @@ local function server(config)
       local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
       local response = { ok = false, error = "unauthorized" }
       if valid then
-        if request.command == "status" then
+        if request.command == "live-status" then
+          response = { ok = true, data = snapshot(config, { library = false, schedule = false }) }
+        elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
         elseif request.command == "set-target" and type(request.target) == "table" then
           saveTarget(request.target)
@@ -996,7 +1003,7 @@ local function server(config)
       rednet.send(sender, response, channel)
     elseif next(manualUntil) == nil and serverAutomationTick then
       local now = os.clock()
-      local interval = math.max(0.25, tonumber(config.updateInterval) or 0.5)
+      local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
       if now - lastAutomation >= interval then
         lastAutomation = now
         serverAutomationTick(config, automationOutputController)
@@ -1006,7 +1013,7 @@ local function server(config)
 end
 
 local function status(config)
-  local state = snapshot(config)
+  local state = snapshot(config, { detail = true })
   print("CC-NavTool " .. VERSION)
   print("Telemetry: " .. (state.telemetry and "online" or "not found"))
   print("Source: " .. tostring(state.source or state.peripheral or "unknown"))
@@ -1091,7 +1098,7 @@ local function diagnose(config)
     end
     print("")
   end
-  local state = snapshot(config)
+  local state = snapshot(config, { detail = true })
   print("Normalized position: " .. shortText(state.position))
   print("Normalized velocity: " .. shortText(state.velocity))
   print("Normalized body velocity: " .. shortText(state.bodyVelocity))
@@ -1189,7 +1196,7 @@ local function automationOutputs(config, state)
 end
 
 serverAutomationTick = function(config, outputController)
-  local state = snapshot(config)
+  local state = snapshot(config, { library = false })
   local active = state.activeSchedule
   local navigation = type(config.navigation) == "table" and config.navigation or {}
   local arrivalRadius = tonumber(navigation.arrivalRadius) or 5
@@ -1200,27 +1207,27 @@ serverAutomationTick = function(config, outputController)
       saveActiveSchedule(nil)
       saveMode("standby")
       clearOutputs(config)
-      state = snapshot(config)
+      state = snapshot(config, { library = false })
     else
       local index = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
       local stop = schedule.stops[index]
       if not state.target or state.target.name ~= stop.name or tonumber(state.target.x) ~= tonumber(stop.x) or tonumber(state.target.y) ~= tonumber(stop.y) or tonumber(state.target.z) ~= tonumber(stop.z) then
         saveTarget(stop)
         saveMode("navigate")
-        state = snapshot(config)
+        state = snapshot(config, { library = false })
       end
       if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
         if index >= #schedule.stops then
           saveActiveSchedule(nil)
           saveMode("standby")
           clearOutputs(config)
-          state = snapshot(config)
+          state = snapshot(config, { library = false })
         else
           active.index = index + 1
           saveActiveSchedule(active)
           saveTarget(schedule.stops[active.index])
           saveMode("navigate")
-          state = snapshot(config)
+          state = snapshot(config, { library = false })
         end
       end
     end
@@ -1230,14 +1237,14 @@ serverAutomationTick = function(config, outputController)
 end
 
 local function automate(config)
-  local interval = config.updateInterval or 0.5
+  local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
   local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
   local outputController = makeOutputController(config)
   print("CC-NavTool automation")
   print("Redstone outputs are bounded by config safety limits.")
   print("Press Q to stop automation and return to standby.")
   while true do
-    local state = snapshot(config)
+    local state = snapshot(config, { library = false })
     local active = state.activeSchedule
     local requested, notes = automationOutputs(config, state)
     local applied = outputController(requested, state.mode == "standby")
