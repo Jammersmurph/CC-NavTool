@@ -4,6 +4,7 @@ local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
+  { remote = "hardware.lua", localPath = ROOT .. "/hardware.lua" },
   { remote = "location_patch.lua", localPath = ROOT .. "/location_patch.lua" },
   { remote = "location_network.lua", localPath = ROOT .. "/location_network.lua" },
   { remote = "flightcore.lua", localPath = ROOT .. "/flightcore.lua" },
