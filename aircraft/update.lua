@@ -13,7 +13,6 @@ local FILES = {
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
-
 local function download(remote, localPath)
   local response, err = http.get(BASE .. remote)
   if not response then return false, err end
@@ -30,30 +29,26 @@ local function download(remote, localPath)
   fs.move(temporary, localPath)
   return true
 end
-
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
-print("Updating onboard navtool from develop...")
+print("Updating headless NavTool aircraft agent from develop...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)
   if not ok then printError("failed: " .. tostring(err)); return end
   print("done")
 end
-
 local launcher = fs.open("/navtool.lua", "w")
 if launcher then
-  launcher.write('shell.run("/navtool/runtime.lua", ...)\n')
+  launcher.write('local a={...}; local c=a[1] and tostring(a[1]):lower() or "server"; if c=="update" then shell.run("/navtool/update.lua") elseif c=="uninstall" then shell.run("/navtool/uninstall.lua") elseif c=="version" then local f=fs.open("/navtool/version.txt","r"); if f then print(f.readAll()); f.close() end else shell.run("/navtool/runtime.lua", "server") end\n')
   launcher.close()
 end
-
 local flightLauncher = fs.open("/flightcore.lua", "w")
 if flightLauncher then
   flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
   flightLauncher.close()
 end
-
-print("Onboard update complete. Config, routes, UI, and logs preserved.")
-print("The existing navtool UI now uses the integrated Avionics controller.")
+print("Onboard update complete. Config and logs preserved.")
+print("NavTool now runs only as a headless aircraft agent; use NavRemote to control it.")
