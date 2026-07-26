@@ -1,10 +1,5 @@
 local Avionics = {}
 
-local function methods(name)
-  local ok, value = pcall(peripheral.getMethods, name)
-  return ok and value or {}
-end
-
 local function has(list, wanted)
   for _, value in ipairs(list) do if value == wanted then return true end end
   return false
@@ -49,6 +44,7 @@ end
 local function vector(value)
   if type(value) ~= "table" then return nil end
   local source = value.position or value.pos or value.translation or value.location or value.vector or value
+  if type(source) ~= "table" then return nil end
   local x = tonumber(source.x or source.X or source[1])
   local y = tonumber(source.y or source.Y or source[2])
   local z = tonumber(source.z or source.Z or source[3])
@@ -87,26 +83,27 @@ function Avionics.read(config, discovered, detail)
   discovered = discovered or Avionics.discover(config)
   local orientation = config.orientation or {}
   local state = {
-    source = "create-avionics",
+    source = "create-avionics+sable",
     peripherals = discovered,
     healthy = false,
   }
 
   if type(sublevel) == "table" then
-    local pose = type(sublevel.getLogicalPose) == "function" and callSublevel and nil
     local ok, rawPose = pcall(function()
       if type(sublevel.getLogicalPose) == "function" then return sublevel.getLogicalPose() end
       if type(sublevel.getLastPose) == "function" then return sublevel.getLastPose() end
     end)
-    if ok then
+    if ok and rawPose ~= nil then
       state.pose = rawPose
       state.position = vector(rawPose)
     end
+
     local okVelocity, rawVelocity = pcall(function()
       if type(sublevel.getLinearVelocity) == "function" then return sublevel.getLinearVelocity() end
       if type(sublevel.getVelocity) == "function" then return sublevel.getVelocity() end
     end)
     if okVelocity then state.velocity = vector(rawVelocity) end
+
     local okAngular, angular = pcall(function()
       if type(sublevel.getAngularVelocity) == "function" then return sublevel.getAngularVelocity() end
     end)
