@@ -1,15 +1,21 @@
 -- CC-NavTool compatibility runtime
 -- Keeps the existing navtool UI and command surface intact while routing
--- automation calculations through the Avionics-native controller when possible.
+-- automation calculations through the Sable-native controller.
 
 local ROOT = "/navtool"
 local SOURCE_PATH = ROOT .. "/navtool.lua"
 
--- CC: Sable examples explicitly require this API. Load it into the global namespace
--- before navtool and the integrated controller start, but preserve an existing value.
+-- CC: Sable is a hard runtime requirement. Load its API into the global namespace
+-- before navtool and the integrated controller start.
 if type(rawget(_G, "sublevel")) ~= "table" then
   local ok, api = pcall(require, "rom/apis/sublevel")
   if ok and type(api) == "table" then _G.sublevel = api end
+end
+
+if type(rawget(_G, "sublevel")) ~= "table" then
+  printError("CC-NavTool requires CC: Sable's sublevel API.")
+  printError("Could not load rom/apis/sublevel; flight control will not start.")
+  return
 end
 
 local function readAll(path)
@@ -33,10 +39,25 @@ local function integratedAutomationOutputs(config, state, fallback)
   if type(config.flightControl) == "table" and config.flightControl.enabled == false then
     return fallback(config, state)
   end
+
+  -- Integrated navigation is intentionally Sable-only. Create: Avionics may still
+  -- contribute diagnostics, but it cannot satisfy the flight-control telemetry contract.
+  if state.sublevel ~= true or type(state.pose) ~= "table" or type(state.position) ~= "table" then
+    return {
+      forward = 0, reverse = 0, left = 0,
+      right = 0, up = 0, down = 0,
+    }, { "CC: Sable pose unavailable; outputs inhibited" }
+  end
+
   if not integratedController then integratedController = IntegratedControl.new(config) end
   local outputs, notes, handled = integratedController:outputs(state)
   if handled then return outputs or {}, notes or {} end
-  return fallback(config, state)
+
+  -- Do not fall back to GPS, generic peripherals, or Avionics-driven automation.
+  return {
+    forward = 0, reverse = 0, left = 0,
+    right = 0, up = 0, down = 0,
+  }, notes or { "Sable flight state incomplete; outputs inhibited" }
 end
 
 local function exactPositionReached(config, state, target)
