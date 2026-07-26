@@ -1,6 +1,6 @@
 # NavRemote Controller Architecture
 
-The `develop` branch now separates aircraft execution from the user interface.
+The `develop` branch separates aircraft execution from the user interface.
 
 ## NavTool aircraft agent
 
@@ -10,14 +10,36 @@ NavTool is a headless onboard service. It owns only live aircraft responsibiliti
 - reading pose, quaternion orientation, and velocity
 - running flight-control calculations
 - applying bounded redstone outputs
-- serving authenticated Rednet commands
+- optionally serving authenticated Rednet commands
 - inhibiting outputs when required telemetry is missing
 
-Launching `navtool` or `navtool server` starts the same headless service. NavTool no longer presents an interactive dashboard.
+The canonical launch command is:
+
+```text
+navtool
+```
+
+`navtool server` remains accepted as a compatibility alias. NavTool no longer presents an interactive dashboard.
+
+### First-run setup
+
+The first time `navtool` starts, the aircraft still runs its networking setup. The operator chooses whether remote networking is enabled and configures:
+
+- Rednet channel
+- aircraft host name
+- shared key
+
+The same setup can be rerun later with:
+
+```text
+navtool setup
+```
+
+Remote networking is optional. When it is disabled, `navtool` still runs the local Sable flight service and automation loop, but it does not host a Rednet endpoint. When networking is enabled, wired, wireless, and Ender modem arrangements supported by CC:Tweaked remain usable.
 
 ## NavRemote controller
 
-NavRemote is the required operator interface. The default `navremote` launcher opens the lightweight OPUS-inspired desktop. The older interface remains temporarily available with:
+NavRemote is the operator interface. The default `navremote` launcher opens the lightweight OPUS-inspired desktop. The older interface remains temporarily available with:
 
 ```text
 navremote legacy
