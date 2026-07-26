@@ -870,9 +870,10 @@ local function server(config)
     local sender, request = rednet.receive(channel, 0.05)
     clearExpiredManual()
     if type(request) == "table" then
-      local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
-      local response = { ok = false, error = "unauthorized" }
-      if valid then
+      local ok, err = pcall(function()
+        local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
+        local response = { ok = false, error = "unauthorized" }
+        if valid then
         if request.command == "live-status" then
           response = { ok = true, data = snapshot(config, { library = false, schedule = false }) }
         elseif request.command == "status" then
@@ -1000,14 +1001,20 @@ local function server(config)
         else
           response = { ok = false, error = "unsupported command" }
         end
+        end
+        rednet.send(sender, response, channel)
+      end)
+      if not ok then
+        printError("Request failed: " .. tostring(err))
+        pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err) }, channel)
       end
-      rednet.send(sender, response, channel)
     elseif next(manualUntil) == nil and serverAutomationTick then
       local now = os.clock()
       local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
       if now - lastAutomation >= interval then
         lastAutomation = now
-        serverAutomationTick(config, automationOutputController)
+        local ok, err = pcall(serverAutomationTick, config, automationOutputController)
+        if not ok then printError("Automation tick failed: " .. tostring(err)) end
       end
     end
   end
