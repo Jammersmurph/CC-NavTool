@@ -3,6 +3,11 @@ local ROOT = "/navtool"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
+  { remote = "flightcore.lua", localPath = ROOT .. "/flightcore.lua" },
+  { remote = "lib/pid.lua", localPath = ROOT .. "/lib/pid.lua" },
+  { remote = "lib/avionics.lua", localPath = ROOT .. "/lib/avionics.lua" },
+  { remote = "lib/flight_director.lua", localPath = ROOT .. "/lib/flight_director.lua" },
+  { remote = "lib/recorder.lua", localPath = ROOT .. "/lib/recorder.lua" },
   { remote = "update.lua", localPath = ROOT .. "/update.lua" },
   { remote = "uninstall.lua", localPath = ROOT .. "/uninstall.lua" },
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
@@ -13,6 +18,8 @@ local function download(remote, localPath)
   if not response then return false, err end
   local body = response.readAll()
   response.close()
+  local directory = fs.getDir(localPath)
+  if directory ~= "" and not fs.exists(directory) then fs.makeDir(directory) end
   local file = fs.open(localPath, "w")
   if not file then return false, "Could not write " .. localPath end
   file.write(body)
@@ -26,6 +33,7 @@ if not http then
 end
 
 fs.makeDir(ROOT)
+fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
 fs.makeDir(ROOT .. "/profiles")
 
@@ -55,7 +63,12 @@ local launcher = fs.open("/navtool.lua", "w")
 launcher.write('shell.run("/navtool/navtool.lua", ...)\n')
 launcher.close()
 
+local flightLauncher = fs.open("/flightcore.lua", "w")
+flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
+flightLauncher.close()
+
 print("Onboard navtool installed.")
-print("Run: navtool")
+print("Run dashboard/server: navtool")
+print("Run Avionics flight core: flightcore")
 print("Uninstall: navtool uninstall")
 print("Remote networking is disabled by default.")
