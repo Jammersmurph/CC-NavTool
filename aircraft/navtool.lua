@@ -65,7 +65,7 @@ local function onboarding(config, force)
   local enable = promptYesNo("Enable Rednet remote control", config.network.enabled == true)
   config.network.enabled = enable
   config.network.channel = prompt(config.network.channel or "cc-navtool", "Rednet channel")
-  config.network.host = prompt(config.network.host or ("navtool-aircraft-" .. tostring(os.getComputerID())), "Aircraft host name")
+  config.network.host = prompt(config.network.host or "navtool-aircraft", "Aircraft host name")
   if enable then
     repeat
       write("Shared key required by navremote: ")
@@ -852,6 +852,7 @@ local function server(config)
   rednet.host(channel, host)
   print("navtool remote server online")
   print("Host: " .. host)
+  print("Channel: " .. channel)
   local manualUntil = {}
   local lastAutomation = 0
   local automationOutputController = makeOutputController(config)
