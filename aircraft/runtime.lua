@@ -5,6 +5,13 @@
 local ROOT = "/navtool"
 local SOURCE_PATH = ROOT .. "/navtool.lua"
 
+-- CC: Sable examples explicitly require this API. Load it into the global namespace
+-- before navtool and the integrated controller start, but preserve an existing value.
+if type(rawget(_G, "sublevel")) ~= "table" then
+  local ok, api = pcall(require, "rom/apis/sublevel")
+  if ok and type(api) == "table" then _G.sublevel = api end
+end
+
 local function readAll(path)
   local file = fs.open(path, "r")
   if not file then return nil, "Could not open " .. path end
