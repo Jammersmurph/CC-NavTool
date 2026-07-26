@@ -70,9 +70,37 @@ source = source:gsub(
   end
 )
 
-if replacements ~= 5 then
+-- The original automation smoother intentionally extends short output pulses. That
+-- behavior is useful for the legacy controller, but it defeats rapid PID corrections
+-- near a precision target. Only disable it while the integrated controller is enabled.
+source = source:gsub(
+  "local holdAfter = tonumber%(automation%.outputHoldAfter%) or 0%.6",
+  function()
+    replacements = replacements + 1
+    return "local holdAfter = (type(config.flightControl) == 'table' and config.flightControl.enabled ~= false) and 0 or (tonumber(automation.outputHoldAfter) or 0.6)"
+  end,
+  1
+)
+source = source:gsub(
+  "local pulseReleaseGrace = tonumber%(automation%.outputPulseReleaseGrace%) or 0%.25",
+  function()
+    replacements = replacements + 1
+    return "local pulseReleaseGrace = (type(config.flightControl) == 'table' and config.flightControl.enabled ~= false) and 0 or (tonumber(automation.outputPulseReleaseGrace) or 0.25)"
+  end,
+  1
+)
+source = source:gsub(
+  "local holdReleaseGrace = tonumber%(automation%.outputHoldReleaseGrace%) or 1%.0",
+  function()
+    replacements = replacements + 1
+    return "local holdReleaseGrace = (type(config.flightControl) == 'table' and config.flightControl.enabled ~= false) and 0 or (tonumber(automation.outputHoldReleaseGrace) or 1.0)"
+  end,
+  1
+)
+
+if replacements ~= 8 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 5 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 8 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
