@@ -2,7 +2,21 @@ local ROOT = "/navremote"
 local args = { ... }
 local Beacon = dofile(ROOT .. "/location_beacon.lua")
 
-parallel.waitForAny(
-  function() return shell.run(ROOT .. "/ui_runtime.lua", table.unpack(args)) end,
-  function() return Beacon.run() end
-)
+local function runController()
+  local ok = shell.run(ROOT .. "/controller_runtime.lua", table.unpack(args))
+  if not ok then
+    printError("NavRemote controller stopped because of an error.")
+    print("Run this directly for the full error:")
+    print(ROOT .. "/controller_runtime.lua")
+  end
+end
+
+local function runBeacon()
+  local ok, err = pcall(Beacon.run)
+  if not ok then
+    printError("NavRemote location beacon failed: " .. tostring(err))
+    while true do os.pullEvent() end
+  end
+end
+
+parallel.waitForAny(runController, runBeacon)
