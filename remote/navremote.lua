@@ -341,6 +341,30 @@ local function pingAircraft()
   if response.id then print("Computer ID: " .. tostring(response.id)) end
 end
 
+local function diagnoseRednet()
+  local connection = activeProfile()
+  local channel = connection.channel or connection.protocol or "cc-navtool"
+  local host = connection.host or "navtool-aircraft"
+  print("Profile: " .. tostring(config.activeProfile))
+  print("Host: " .. tostring(host))
+  print("Channel: " .. tostring(channel))
+  local hostId = rednet.lookup(channel, host)
+  print("Lookup ID: " .. tostring(hostId))
+  if not hostId then return end
+  rednet.send(hostId, { command = "ping", key = connection.sharedKey or "" }, channel)
+  print("Sent ping. Listening for 5 seconds...")
+  local deadline = os.clock() + 5
+  repeat
+    local remaining = deadline - os.clock()
+    if remaining <= 0 then break end
+    local sender, message, protocol = rednet.receive(nil, remaining)
+    if sender then
+      print("From " .. tostring(sender) .. " protocol " .. tostring(protocol) .. ":")
+      print(textutils.serialize(message))
+    end
+  until os.clock() >= deadline
+end
+
 local function setTarget()
   write("Name: ")
   local name = read()
@@ -769,6 +793,7 @@ end
 
 if command == "status" then showStatus()
 elseif command == "ping" then pingAircraft()
+elseif command == "diagnose-rednet" then diagnoseRednet()
 elseif command == "target" then setTarget()
 elseif command == "waypoint" then saveWaypoint()
 elseif command == "schedule" then createSchedule()
