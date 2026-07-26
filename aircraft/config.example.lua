@@ -40,6 +40,34 @@ return {
     outputPulseReleaseGrace = 0.25,
     outputHoldReleaseGrace = 1.0,
   },
+  flightControl = {
+    interval = 0.05,
+    minimumThrustAlignment = 0.25,
+    hoverVelocityGain = 0.18,
+    headingPID = {
+      kp = 1.6, ki = 0.02, kd = 0.45,
+      minimum = -1, maximum = 1,
+      integralMinimum = -0.5, integralMaximum = 0.5,
+      derivativeFilter = 0.65,
+    },
+    altitudePID = {
+      kp = 0.12, ki = 0.01, kd = 0.18,
+      minimum = -1, maximum = 1,
+      integralMinimum = -0.5, integralMaximum = 0.5,
+      derivativeFilter = 0.65,
+    },
+    speedPID = {
+      kp = 0.16, ki = 0.015, kd = 0.08,
+      minimum = -1, maximum = 1,
+      integralMinimum = -0.5, integralMaximum = 0.5,
+      derivativeFilter = 0.65,
+    },
+    recorder = {
+      enabled = true,
+      flushInterval = 2,
+      maximumBuffer = 40,
+    },
+  },
   orientation = {
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
