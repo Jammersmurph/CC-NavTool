@@ -33,10 +33,7 @@ local function prune()
   local ttl = tonumber(config.locationTracking and config.locationTracking.timeout) or 12
   local cutoff = now() - ttl * 1000
   for id, item in pairs(remotes) do
-    if (item.seen or 0) < cutoff then
-      remotes[id] = nil
-      if followId == id then followId = nil end
-    end
+    if (item.seen or 0) < cutoff then remotes[id] = nil end
   end
 end
 
@@ -94,9 +91,7 @@ end
 
 function LocationNetwork.run()
   local tracking = config and config.locationTracking or {}
-  if tracking.enabled ~= true then
-    while true do sleep(3600) end
-  end
+  if tracking.enabled ~= true then while true do sleep(3600) end end
 
   local modemName, modem = wirelessModem()
   if not modem then
@@ -126,6 +121,8 @@ function LocationNetwork.run()
           distance = distance,
         }
         remotes[id] = item
+        -- followId intentionally survives stale periods. When the selected NavRemote
+        -- returns to GPS/radio range, following resumes automatically.
         if followId == id and callbacks and callbacks.setTarget then callbacks.setTarget(item, true) end
       end
     end
