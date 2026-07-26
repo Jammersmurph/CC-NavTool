@@ -1,6 +1,8 @@
 return {
   onboardingComplete = false,
   updateInterval = 0.05,
+  -- When enabled, CC-NavTool prefers CC: Sable pose, quaternion orientation,
+  -- linear velocity, angular velocity, and mass over optional Avionics sensors.
   sublevelEnabled = true,
   telemetryPeripheral = nil,
   orientationPeripheral = nil,
@@ -92,8 +94,14 @@ return {
     },
   },
   orientation = {
+    -- Aircraft-local unit directions before the Sable quaternion is applied.
+    -- Change these when the computer/sub-level axes do not match the craft nose.
+    -- The defaults mean local -Z is the nose and local +Y is the roof.
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
+
+    -- Used only by numeric-yaw fallback sensors such as a navigation table.
+    -- Quaternion orientation does not require yawOffset.
     yawFormat = "avionics",
     yawOffset = 0,
   },
