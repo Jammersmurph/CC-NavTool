@@ -1,5 +1,6 @@
 local PID = dofile("/navtool/lib/pid.lua")
 local Director = dofile("/navtool/lib/flight_director.lua")
+local Avionics = dofile("/navtool/lib/avionics.lua")
 
 local Control = {}
 Control.__index = Control
@@ -22,19 +23,38 @@ local function vector(value)
   if x and y and z then return { x = x, y = y, z = z } end
 end
 
+local function normalizeHorizontal(value)
+  value = vector(value)
+  if not value then return nil end
+  local length = math.sqrt(value.x * value.x + value.z * value.z)
+  if length < 0.000001 then return nil end
+  return { x = value.x / length, y = 0, z = value.z / length }
+end
+
 local function speed(state)
   local velocity = vector(state.velocity)
   if not velocity then return 0 end
   return math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z)
 end
 
+local function ensureAttitude(config, state)
+  if type(state.attitude) ~= "table" and type(state.pose) == "table" then
+    state.attitude = Avionics.attitudeFromPose(state.pose, type(config.orientation) == "table" and config.orientation or {})
+  end
+  if type(state.attitude) == "table" then
+    state.heading = normalizeHorizontal(state.attitude.horizontalForward or state.attitude.forward) or state.heading
+    state.orientationSource = state.attitude.source or state.orientationSource
+  end
+end
+
 local function horizontalBasis(state)
-  local heading = vector(state.heading)
-  if not heading then return nil end
-  local length = math.sqrt(heading.x * heading.x + heading.z * heading.z)
-  if length < 0.000001 then return nil end
-  local forward = { x = heading.x / length, z = heading.z / length }
-  local right = { x = -forward.z, z = forward.x }
+  local attitude = type(state.attitude) == "table" and state.attitude or nil
+  local forward = normalizeHorizontal(attitude and (attitude.horizontalForward or attitude.forward) or state.heading)
+  if not forward then return nil end
+
+  -- Yaw steering and horizontal position hold need a level basis even when the craft
+  -- is pitched or rolled. The full 3D axes remain available for body-velocity reads.
+  local right = { x = -forward.z, y = 0, z = forward.x }
   return forward, right
 end
 
@@ -97,15 +117,13 @@ function Control:setAxis(commands, value, positive, negative, axis, precision)
     return
   end
 
-  -- Redstone outputs are integer values. Carry fractional demand between ticks so a
-  -- 0.2-strength correction can become one output pulse every five control ticks.
-  local state = self.pulse[axis]
+  local pulseState = self.pulse[axis]
   local sign = value > 0 and 1 or -1
-  if not state or state.sign ~= sign then state = { credit = 0, sign = sign } end
-  state.credit = state.credit + requested
-  local output = math.min(peak, math.floor(state.credit))
-  state.credit = state.credit - output
-  self.pulse[axis] = state
+  if not pulseState or pulseState.sign ~= sign then pulseState = { credit = 0, sign = sign } end
+  pulseState.credit = pulseState.credit + requested
+  local output = math.min(peak, math.floor(pulseState.credit))
+  pulseState.credit = pulseState.credit - output
+  self.pulse[axis] = pulseState
   commands[selected] = output
 end
 
@@ -164,9 +182,11 @@ function Control:outputs(state)
     return commands, notes, true
   end
 
+  ensureAttitude(self.config, state)
   if type(state.position) ~= "table" or type(state.heading) ~= "table" then
-    return nil, { "Avionics state incomplete; legacy controller active" }, false
+    return nil, { "Flight state incomplete; legacy controller active" }, false
   end
+  if state.orientationSource then notes[#notes + 1] = "orientation " .. tostring(state.orientationSource) end
 
   if mode == "navigate" or mode == "return-home" then
     if type(state.target) ~= "table" then
@@ -213,8 +233,8 @@ function Control:outputs(state)
       self:setAxis(commands, self.altitude:update(self.hoverAltitude - altitude, dt, verticalSpeed), "up", "down", "hover-altitude", true)
     end
     local body = state.bodyVelocity or {}
-    local forwardSpeed = tonumber(body.z or body.forward) or 0
-    local lateralSpeed = tonumber(body.x or body.sideways) or 0
+    local forwardSpeed = tonumber(body.forward or body.z) or 0
+    local lateralSpeed = tonumber(body.right or body.sideways or body.x) or 0
     local gain = tonumber(self.fc.hoverVelocityGain) or 0.18
     self:setAxis(commands, -forwardSpeed * gain, "forward", "reverse", "hover-forward", true)
     self:setAxis(commands, -lateralSpeed * gain, "right", "left", "hover-lateral", true)
