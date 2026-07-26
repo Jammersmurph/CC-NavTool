@@ -31,6 +31,15 @@ return {
     settleVelocity = 0.05,
     arrivalRadius = 5,
     stopSpeed = 0.5,
+
+    -- Staged altitude navigation:
+    -- While outside the horizontal transition radius, fly at Y=300.
+    -- Normal targets switch to their requested Y within 3 horizontal blocks.
+    -- Follow targets switch to player Y+10 within 10 horizontal blocks.
+    cruiseAltitude = 300,
+    verticalTransitionRadius = 3,
+    followHorizontalRadius = 10,
+    followHeightOffset = 10,
   },
   automation = {
     altitudeDeadband = 1.5,
