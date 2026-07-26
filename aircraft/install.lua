@@ -38,7 +38,7 @@ fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
 
-print("Installing headless NavTool aircraft agent...")
+print("Installing headless NavTool aircraft service...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)
@@ -55,14 +55,15 @@ else
 end
 
 local launcher = fs.open("/navtool.lua", "w")
-launcher.write('local a={...}; local c=a[1] and tostring(a[1]):lower() or "server"; if c=="update" then shell.run("/navtool/update.lua") elseif c=="uninstall" then shell.run("/navtool/uninstall.lua") elseif c=="version" then local f=fs.open("/navtool/version.txt","r"); if f then print(f.readAll()); f.close() end else shell.run("/navtool/runtime.lua", "server") end\n')
+launcher.write('local a={...}; if #a==0 then a[1]="server" end; shell.run("/navtool/runtime.lua", table.unpack(a))\n')
 launcher.close()
 
 local flightLauncher = fs.open("/flightcore.lua", "w")
 flightLauncher.write('shell.run("/navtool/flightcore.lua", ...)\n')
 flightLauncher.close()
 
-print("Headless NavTool aircraft agent installed.")
-print("Start: navtool  (or navtool server)")
-print("Control and saved navigation data now belong to NavRemote.")
+print("Headless NavTool aircraft service installed.")
+print("Start: navtool")
+print("Reconfigure networking: navtool setup")
+print("Control and saved navigation data belong to NavRemote.")
 print("Standalone flight test console: flightcore")
