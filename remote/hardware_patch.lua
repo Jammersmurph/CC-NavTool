@@ -55,9 +55,11 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       if a>=keys.one and a<=keys.six then index=a-keys.one+1 end
       if a==keys.t then
         local chosen=tonumber(prompt("Control number to test","1"))
-        if chosen and controls[chosen] then
+        if chosen and chosen%1==0 and controls[chosen] then
           local okTest,e=request("hardware-test",{control=controls[chosen],strength=5})
           message=okTest and ("Tested "..controls[chosen]) or tostring(e)
+        else
+          message="Invalid control number"
         end
       end
     elseif event=="mouse_click" and b>=3 and b<=47 and c>=5 and c<=10 then
@@ -66,16 +68,25 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     if index and controls[index] then
       local control=controls[index]
       local current=hardware.assignments and hardware.assignments[control] or {}
-      local kind=prompt("Device: local or relay",current.kind=="relay" and "relay" or "local")
+      local kind=tostring(prompt("Device: local or relay",current.kind=="relay" and "relay" or "local")):lower()
       local peripheralName=nil
       if kind=="relay" then
         if #(hardware.relays or {})==0 then message="No redstone relays are visible"; sleep(1)
         else
           clear(colors.black); header("Choose relay")
           for i,name in ipairs(hardware.relays) do writeAt(3,i+3,tostring(i)..". "..tostring(name),colors.white) end
-          local chosen=tonumber(prompt("Relay number","1"))
-          peripheralName=hardware.relays[chosen or 0]
+          local chosen=tonumber(prompt("List number","1"))
+          if not chosen or chosen%1~=0 then
+            message="Relay number must be an integer"
+          elseif chosen<1 or chosen>#hardware.relays then
+            message="Invalid relay selection"
+          else
+            peripheralName=hardware.relays[chosen]
+            message="Selected "..tostring(chosen).." -> "..tostring(peripheralName)
+          end
         end
+      elseif kind~="local" then
+        message="Device must be local or relay"
       end
       if kind=="local" or peripheralName then
         local side=prompt("Side top/bottom/left/right/front/back",current.side or "front")
