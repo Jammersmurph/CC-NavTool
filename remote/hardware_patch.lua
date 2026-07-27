@@ -39,6 +39,35 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     if item.targets and #item.targets>1 then return targetText(item.targets[1]).." +"..tostring(#item.targets-1) end
     return targetText(item)
   end
+  local function chooseControl(label)
+    local chosen=tonumber(prompt(label or "Control number","1"))
+    if chosen and chosen%1==0 and controls[chosen] then return chosen end
+    message="Invalid control number"
+    return nil
+  end
+  local function deleteAssignment(hardware)
+    local chosen=chooseControl("Control number to delete")
+    if not chosen then return end
+    local control=controls[chosen]
+    local item=hardware.assignments and hardware.assignments[control]
+    if not item or item.kind=="unassigned" or (item.count or 0)==0 then message="Control is unassigned"; return end
+    local count=tonumber(item.count) or #(item.targets or {})
+    local index=nil
+    local all=true
+    if count>1 then
+      clear(colors.black); header("Delete binding")
+      for i,target in ipairs(item.targets or {}) do writeAt(3,i+3,tostring(i)..". "..targetText(target),colors.white) end
+      writeAt(3,count+5,"Type a binding number or all.",colors.lightGray)
+      local answer=tostring(prompt("Delete binding","all")):lower()
+      if answer~="all" then
+        index=tonumber(answer)
+        all=false
+        if not index or index%1~=0 then message="Invalid binding number"; return end
+      end
+    end
+    local okDelete,e=request("hardware-unassign",{control=control,index=index,all=all})
+    message=okDelete and (control.." binding deleted") or tostring(e)
+  end
   while true do
     local response,err=request("hardware-list")
     local hardware=response and response.hardware or {assignments={},relays={}}
@@ -52,8 +81,9 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       writeAt(17,y,assignmentText(item):sub(1,25),item and item.available~=false and colors.lime or colors.yellow,colors.gray)
     end
     fill(3,12,18,1,colors.blue); writeAt(5,12,"ADD ASSIGNMENT",colors.white,colors.blue)
+    fill(24,12,18,1,colors.red); writeAt(29,12,"DELETE",colors.white,colors.red)
     writeAt(3,13,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("Click row: edit  A:add  T:test  Q:back")
+    footer("Click row: edit  A:add  D:delete  T:test  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
     local forceAdd=false
@@ -61,9 +91,11 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       if a==keys.q then return end
       if a>=keys.one and a<=keys.six then index=a-keys.one+1 end
       if a==keys.a then
-        local chosen=tonumber(prompt("Control number to add","1"))
-        if chosen and chosen%1==0 and controls[chosen] then index=chosen; forceAdd=true
-        else message="Invalid control number" end
+        local chosen=chooseControl("Control number to add")
+        if chosen then index=chosen; forceAdd=true end
+      end
+      if a==keys.d then
+        deleteAssignment(hardware)
       end
       if a==keys.t then
         local chosen=tonumber(prompt("Control number to test","1"))
@@ -75,9 +107,10 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         end
       end
     elseif event=="mouse_click" and b>=3 and b<=20 and c==12 then
-      local chosen=tonumber(prompt("Control number to add","1"))
-      if chosen and chosen%1==0 and controls[chosen] then index=chosen; forceAdd=true
-      else message="Invalid control number" end
+      local chosen=chooseControl("Control number to add")
+      if chosen then index=chosen; forceAdd=true end
+    elseif event=="mouse_click" and b>=24 and b<=41 and c==12 then
+      deleteAssignment(hardware)
     elseif event=="mouse_click" and b>=3 and b<=47 and c>=5 and c<=10 then
       index=c-4
     end

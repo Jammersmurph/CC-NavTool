@@ -38,6 +38,14 @@ function Patch.apply(source)
           else
             response = { ok = false, error = result }
           end
+        elseif request.command == "hardware-unassign" then
+          local okUnassign, result = Hardware.unassign(config, request)
+          if okUnassign then
+            saveConfig(config)
+            response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else
+            response = { ok = false, error = result }
+          end
         elseif request.command == "hardware-test" then
           local okTest, result = Hardware.test(config, request.control, request.strength)
           response = okTest and { ok = true } or { ok = false, error = result }
