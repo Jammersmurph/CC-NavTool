@@ -204,9 +204,7 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
-    local angular = state.angularVelocity
-    local yawRate = type(angular) == "table" and tonumber(angular.y or angular[2]) or nil
-    self:setAxis(commands, self.heading:update(headingError or 0, dt, yawRate), "left", "right", "heading", false)
+    self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
     self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
