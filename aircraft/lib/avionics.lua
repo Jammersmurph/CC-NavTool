@@ -119,7 +119,7 @@ local function attitudeFromPose(rawPose, orientation)
   local q = quaternion(rawPose.orientation or rawPose.rotation or rawPose.quaternion)
   if not q then return nil end
 
-  local localForward = normalize(orientation.forward or { x = 0, y = 0, z = -1 })
+  local localForward = normalize(orientation.forward or { x = 0, y = 0, z = 1 })
   local localUp = normalize(orientation.up or { x = 0, y = 1, z = 0 })
   if not localForward or not localUp then return nil end
   local localRight = normalize(cross(localForward, localUp))
