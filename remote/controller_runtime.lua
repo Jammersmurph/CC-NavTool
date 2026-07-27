@@ -133,15 +133,10 @@ local fastRequest = [[local function request(command, extra)
   local host = connection.host or "navtool-aircraft"
   local key = channel .. "\0" .. host
 
-  -- Imported/discovered profiles already know the computer ID. Using it avoids a
-  -- blocking rednet.lookup every time NavRemote starts.
-  local hostId = hostCache[key] or tonumber(connection.computerId)
-  if not hostId then
-    hostId = rednet.lookup(channel, host)
-    if hostId then
-      connection.computerId = hostId
-      saveConfig()
-    end
+  local hostId = rednet.lookup(channel, host)
+  if hostId then
+    connection.computerId = hostId
+    saveConfig()
   end
   if not hostId then return nil, "Aircraft offline" end
   hostCache[key] = hostId
