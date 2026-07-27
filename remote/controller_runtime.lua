@@ -148,14 +148,26 @@ local fastRequest = [[local function request(command, extra)
 
   local payload = extra or {}
   payload.command, payload.key = command, connection.sharedKey or ""
-  rednet.send(hostId, payload, channel)
-  local sender, response = rednet.receive(channel, tonumber(connection.timeout) or 3)
-  if sender ~= hostId or type(response) ~= "table" then
+  local timeout = tonumber(connection.timeout) or 3
+  for attempt=1,2 do
+    rednet.send(hostId, payload, channel)
+    local sender, response = rednet.receive(channel, timeout)
+    if sender == hostId and type(response) == "table" then
+      if not response.ok then return nil, response.error or "Rejected" end
+      return response
+    end
     hostCache[key] = nil
-    return nil, "No response"
+    connection.computerId = nil
+    hostId = rednet.lookup(channel, host)
+    if hostId then
+      connection.computerId = hostId
+      hostCache[key] = hostId
+      saveConfig()
+    elseif attempt == 1 then
+      return nil, "Aircraft offline"
+    end
   end
-  if not response.ok then return nil, response.error or "Rejected" end
-  return response
+  return nil, "No response"
 end]]
 
 local requestReplaced

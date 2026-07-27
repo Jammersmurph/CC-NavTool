@@ -909,6 +909,7 @@ local function server(config, debug)
         elseif request.command == "set-mode" then
           local mode = tostring(request.mode or "standby")
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
+            if mode ~= "navigate" then saveActiveSchedule(nil) end
             saveMode(mode)
             if mode == "standby" then clearOutputs(config) end
             response = { ok = true, mode = mode }
