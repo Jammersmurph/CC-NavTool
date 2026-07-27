@@ -133,11 +133,29 @@ local fastRequest = [[local function request(command, extra)
   local host = connection.host or "navtool-aircraft"
   local key = channel .. "\0" .. host
 
+  local function resolveHostId()
+    local found = rednet.lookup(channel, host)
+    if found then return found end
+    local ok, result = pcall(rednet.lookup, channel)
+    if ok and type(result) == "table" then
+      for foundHost, foundId in pairs(result) do
+        if tostring(foundHost) == tostring(host) and type(foundId) == "number" then return foundId end
+      end
+      local onlyId
+      for _, foundId in pairs(result) do
+        if type(foundId) == "number" then if onlyId then return nil end; onlyId = foundId end
+      end
+      return onlyId
+    elseif ok and type(result) == "number" then
+      return result
+    end
+  end
+
   -- Imported/discovered profiles already know the computer ID. Using it avoids a
   -- blocking rednet.lookup every time NavRemote starts.
   local hostId = hostCache[key] or tonumber(connection.computerId)
   if not hostId then
-    hostId = rednet.lookup(channel, host)
+    hostId = resolveHostId()
     if hostId then
       connection.computerId = hostId
       saveConfig()
@@ -157,8 +175,7 @@ local fastRequest = [[local function request(command, extra)
       return response
     end
     hostCache[key] = nil
-    connection.computerId = nil
-    hostId = rednet.lookup(channel, host)
+    hostId = resolveHostId()
     if hostId then
       connection.computerId = hostId
       hostCache[key] = hostId
