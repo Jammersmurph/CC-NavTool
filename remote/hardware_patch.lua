@@ -29,6 +29,7 @@ source = source:gsub('icon.label:sub%(1,10%)','icon.label:sub(1,8)',1)
 
 local hardwarePageSource = [==[local function hardwarePage(data)
   local controls={"forward","reverse","left","right","up","down"}
+  local expanded={}
   local function targetText(item)
     if not item or item.kind=="unassigned" then return "UNASSIGNED" end
     if item.kind=="relay" then return tostring(item.peripheral)..":"..tostring(item.side) end
@@ -79,17 +80,32 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local hardware=response and response.hardware or {assignments={},relays={}}
     clear(colors.black); header("Hardware",err and "[ OFFLINE ]" or "[ CONFIG ]")
     writeAt(3,3,"Flight output assignments",colors.cyan)
+    local rowControl={}
+    local y=5
     for i,control in ipairs(controls) do
-      local y=i+4
       local item=hardware.assignments and hardware.assignments[control]
+      local multi=item and item.targets and #item.targets>1
+      rowControl[y]=i
       fill(3,y,45,1,colors.gray)
       writeAt(4,y,tostring(i)..". "..control:upper(),colors.white,colors.gray)
-      writeAt(17,y,assignmentText(item):sub(1,25),item and item.available~=false and colors.lime or colors.yellow,colors.gray)
+      local prefix=multi and (expanded[control] and "v " or "> ") or ""
+      writeAt(17,y,(prefix..assignmentText(item)):sub(1,25),item and item.available~=false and colors.lime or colors.yellow,colors.gray)
+      y=y+1
+      if multi and expanded[control] then
+        for targetIndex,target in ipairs(item.targets) do
+          if y<=14 then
+            fill(5,y,43,1,colors.black)
+            writeAt(6,y,tostring(targetIndex)..". "..targetText(target):sub(1,36),colors.lightGray,colors.black)
+            y=y+1
+          end
+        end
+      end
     end
-    fill(3,12,18,1,colors.blue); writeAt(5,12,"ADD ASSIGNMENT",colors.white,colors.blue)
-    fill(24,12,18,1,colors.red); writeAt(29,12,"DELETE",colors.white,colors.red)
-    writeAt(3,13,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("Click row: edit  A:add  D:delete  T:test  Q:back")
+    local buttonY=math.min(y+1,15)
+    fill(3,buttonY,18,1,colors.blue); writeAt(5,buttonY,"ADD ASSIGNMENT",colors.white,colors.blue)
+    fill(24,buttonY,18,1,colors.red); writeAt(29,buttonY,"DELETE",colors.white,colors.red)
+    writeAt(3,buttonY+1,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
+    footer("+N/row text: expand  Number: edit  A:add  D:delete  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
     local forceAdd=false
@@ -112,13 +128,21 @@ local hardwarePageSource = [==[local function hardwarePage(data)
           message="Invalid control number"
         end
       end
-    elseif event=="mouse_click" and b>=3 and b<=20 and c==12 then
+    elseif event=="mouse_click" and b>=3 and b<=20 and c==buttonY then
       local chosen=chooseControl("Control number to add")
       if chosen then index=chosen; forceAdd=true end
-    elseif event=="mouse_click" and b>=24 and b<=41 and c==12 then
+    elseif event=="mouse_click" and b>=24 and b<=41 and c==buttonY then
       deleteAssignment(hardware)
-    elseif event=="mouse_click" and b>=3 and b<=47 and c>=5 and c<=10 then
-      index=c-4
+    elseif event=="mouse_click" and b>=3 and b<=47 and rowControl[c] then
+      local clicked=rowControl[c]
+      local control=controls[clicked]
+      local item=hardware.assignments and hardware.assignments[control]
+      if b>=17 and item and item.targets and #item.targets>1 then
+        for _,name in ipairs(controls) do if name~=control then expanded[name]=nil end end
+        expanded[control]=not expanded[control]
+      else
+        index=clicked
+      end
     end
     if index and controls[index] then
       local control=controls[index]
