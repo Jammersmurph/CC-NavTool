@@ -1,6 +1,7 @@
 return {
   onboardingComplete = false,
   updateInterval = 0.05,
+  networkUpdateInterval = 0.25,
 
   -- CC: Sable is required. CC-NavTool reads pose, quaternion orientation,
   -- linear velocity, angular velocity, and available physics data from sublevel.
