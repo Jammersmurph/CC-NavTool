@@ -74,11 +74,21 @@ local function chooseAircraft(channel)
 end
 
 local function chooseLocationRemote(title)
-  local response,err=request("location-list")
-  if not response then message=err or "Location tracking unavailable"; return nil end
-  local remotes=response.remotes or {}
+  local remotes, lastErr = {}, nil
+  local deadline = os.clock() + 8
+  repeat
+    local response,err=request("location-list")
+    if response then remotes=response.remotes or {} else lastErr=err end
+    clear(colors.black); header(title or "NavRemotes")
+    writeAt(3,4,"Scanning for broadcasting NavRemotes...",colors.cyan)
+    writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
+    writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
+    if #remotes>0 then break end
+    sleep(0.5)
+  until os.clock() >= deadline
+  if lastErr and #remotes==0 then message=lastErr or "Location tracking unavailable"; return nil end
   clear(colors.black); header(title or "NavRemotes")
-  if #remotes==0 then writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow); waitBack(); return nil end
+  if #remotes==0 then writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow); writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray); waitBack(); return nil end
   local current=nowMs()
   for i,item in ipairs(remotes) do
     if i>12 then break end
