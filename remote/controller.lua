@@ -1,4 +1,4 @@
-local VERSION = "0.4.0-dev"
+local VERSION = "0.4.0-alpha"
 local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
@@ -15,7 +15,7 @@ local icons = {
   { id="schedules", label="Schedules", glyph={"#####","#.#.#","#####"} },
   { id="modes", label="Modes", glyph={"..#..",".###.","#####"} },
   { id="manual", label="Manual", glyph={".#.#.","#####",".#.#."} },
-  { id="profiles", label="Aircraft", glyph={"#...#",".###.","#...#"} },
+  { id="profiles", label="Profiles", glyph={"#...#",".###.","#...#"} },
   { id="logs", label="Logs", glyph={"####.","#....","#####"} },
   { id="settings", label="Settings", glyph={".#.#.","#####",".#.#."} },
 }
@@ -266,43 +266,17 @@ end
 local function manualPage()
   clear(colors.black); header("Manual control")
   writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
-  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Left / right")
+  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
   writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
-  writeAt(3,8,"Hold multiple keys for combined manual output.",colors.yellow)
-  footer("Hold movement keys  X: outputs off  Esc: back")
-  local held = {}
-  local holdDuration = 1.0
-  local refreshInterval = 0.2
-  local running = true
-  local function controlForKey(key)
-    return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or (key==keys.leftShift or key==keys.rightShift) and "down"
+  writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
+  footer("Movement keys  X: outputs off  Esc: back")
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return end
+    local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
+    if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+    if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
   end
-  local function sendHeld()
-    for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=holdDuration}) end
-  end
-  parallel.waitForAny(
-    function()
-      while running do
-        local event,key=os.pullEvent()
-        if event=="key" then
-          if key==keys.escape then running=false; request("outputs-off"); return end
-          if key==keys.x then running=false; request("outputs-off"); message="Outputs cleared"; return end
-          local control=controlForKey(key)
-          if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=holdDuration}) end
-        elseif event=="key_up" then
-          local control=controlForKey(key)
-          if control then held[control]=nil; request("manual-control",{control=control,strength=0,duration=0}) end
-        end
-      end
-    end,
-    function()
-      while running do
-        sleep(refreshInterval)
-        sendHeld()
-      end
-    end
-  )
-  request("outputs-off")
 end
 
 local function dashboard(data)
@@ -324,7 +298,7 @@ end
 
 local function profilesPage()
   while true do
-    clear(colors.black); header("Aircraft")
+    clear(colors.black); header("Profiles")
     local names=Storage.names(config.profiles)
     for i,name in ipairs(names) do
       local marker=name==config.activeProfile and ">" or " "
@@ -371,7 +345,7 @@ local function settingsPage(data)
     writeAt(3,4,"1. Arrival radius",colors.cyan); writeAt(25,4,tostring(data.preferences.arrivalRadius or 5))
     writeAt(3,5,"2. Auto refresh",colors.cyan); writeAt(25,5,data.preferences.autoRefresh==false and "off" or "on")
     writeAt(3,6,"3. Manual strength",colors.cyan); writeAt(25,6,tostring(data.preferences.manualStrength or 2))
-    writeAt(3,8,"Connection values are edited in Aircraft.",colors.lightGray)
+    writeAt(3,8,"Connection values are edited in Profiles.",colors.lightGray)
     footer("1-3: edit  Esc: back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then saveData(data); return
@@ -391,7 +365,21 @@ local function advanceAutomation(data,status)
   local dy=(tonumber(status.position.y) or 0)-(tonumber(status.target.y) or 0)
   local dz=(tonumber(status.position.z) or 0)-(tonumber(status.target.z) or 0)
   local radius=tonumber((data.preferences or {}).arrivalRadius) or 5
-  if math.sqrt(dx*dx+dy*dy+dz*dz)>radius then return end
+  if math.sqrt(dx*dx+dy*dy+dz*dz)>radius then
+    if active.dwellIndex or active.dwellUntil then active.dwellIndex=nil; active.dwellUntil=nil; saveData(data) end
+    return
+  end
+  if kind=="Schedule" then
+    local dwell=math.max(0,tonumber(item.dwell) or 0)
+    if dwell>0 then
+      local now=os.epoch and (os.epoch("utc")/1000) or os.clock()
+      if active.dwellIndex~=(tonumber(active.index) or 1) or not active.dwellUntil then
+        active.dwellIndex=tonumber(active.index) or 1; active.dwellUntil=now+dwell; saveData(data); return
+      end
+      if now<active.dwellUntil then saveData(data); return end
+      active.dwellIndex=nil; active.dwellUntil=nil
+    end
+  end
   local nextIndex=(tonumber(active.index) or 1)+1
   if nextIndex>#item.stops then
     if kind=="Schedule" and item.loop then nextIndex=1 else data.activeRoute=nil; data.activeSchedule=nil; request("set-mode",{mode="standby"}); request("outputs-off"); message=kind.." complete"; Storage.log(data,"INFO",message); saveData(data); return end

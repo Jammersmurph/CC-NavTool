@@ -1,5 +1,6 @@
 local ROOT = "/navtool"
 local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
+local args = { ... }
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
   { remote = "runtime.lua", localPath = ROOT .. "/runtime.lua" },
@@ -17,8 +18,12 @@ local FILES = {
   { remote = "version.txt", localPath = ROOT .. "/version.txt" },
 }
 
+local function cacheToken()
+  return tostring(os.epoch and os.epoch("utc") or os.clock())
+end
+
 local function download(remote, localPath)
-  local response, err = http.get(BASE .. remote)
+  local response, err = http.get(BASE .. remote .. "?cache=" .. cacheToken())
   if not response then return false, err end
   local body = response.readAll()
   response.close()
@@ -35,6 +40,16 @@ local function download(remote, localPath)
 end
 
 if not http then printError("HTTP API is disabled."); return end
+
+if args[1] ~= "--fresh" then
+  local temporary = ROOT .. "/update.bootstrap.lua"
+  local ok, err = download("update.lua", temporary)
+  if not ok then printError("Could not download current updater: " .. tostring(err)); return end
+  local result = shell.run(temporary, "--fresh")
+  if fs.exists(temporary) then fs.delete(temporary) end
+  return result
+end
+
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
