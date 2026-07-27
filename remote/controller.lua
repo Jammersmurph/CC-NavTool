@@ -271,20 +271,22 @@ local function manualPage()
   writeAt(3,8,"Hold multiple keys for combined manual output.",colors.yellow)
   footer("Hold movement keys  X: outputs off  Esc: back")
   local held = {}
+  local holdDuration = 1.0
+  local refreshInterval = 0.2
   local function controlForKey(key)
     return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or (key==keys.leftShift or key==keys.rightShift) and "down"
   end
   local function sendHeld()
-    for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=0.25}) end
+    for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=holdDuration}) end
   end
-  local timer=os.startTimer(0.1)
+  local timer=os.startTimer(refreshInterval)
   while true do
     local event,key=os.pullEvent()
     if event=="key" then
       if key==keys.escape then request("outputs-off"); return end
       if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
       local control=controlForKey(key)
-      if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=0.25}) end
+      if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=holdDuration}) end
     elseif event=="key_up" then
       local control=controlForKey(key)
       if control then
@@ -295,7 +297,7 @@ local function manualPage()
       end
     elseif event=="timer" and key==timer then
       sendHeld()
-      timer=os.startTimer(0.1)
+      timer=os.startTimer(refreshInterval)
     end
   end
 end
