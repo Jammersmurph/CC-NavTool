@@ -119,7 +119,7 @@ source = source:gsub(
     replacements = replacements + 1
     return "local requested, notes = integratedAutomationOutputs(config, state, automationOutputs)"
   end,
-  1
+  2
 )
 
 source = source:gsub(
