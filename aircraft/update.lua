@@ -1,5 +1,5 @@
 local ROOT = "/navtool"
-local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
+local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/aircraft/"
 local args = { ... }
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
