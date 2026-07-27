@@ -272,7 +272,7 @@ local function manualPage()
   footer("Hold movement keys  X: outputs off  Esc: back")
   local held = {}
   local function controlForKey(key)
-    return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
+    return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or (key==keys.leftShift or key==keys.rightShift) and "down"
   end
   local function sendHeld()
     for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=0.25}) end
@@ -287,7 +287,12 @@ local function manualPage()
       if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=0.25}) end
     elseif event=="key_up" then
       local control=controlForKey(key)
-      if control then held[control]=nil; request("manual-control",{control=control,strength=0,duration=0}) end
+      if control then
+        if control~="down" then
+          held[control]=nil
+          request("manual-control",{control=control,strength=0,duration=0})
+        end
+      end
     elseif event=="timer" and key==timer then
       sendHeld()
       timer=os.startTimer(0.1)
