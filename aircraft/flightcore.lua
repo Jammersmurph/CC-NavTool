@@ -78,6 +78,19 @@ local function splitAxis(value, positive, negative, commands)
   commands[negative] = value < 0 and -value or 0
 end
 
+local function horizontalSpeedAlong(state, heading)
+  local velocity = type(state.velocity) == "table" and state.velocity or nil
+  if not velocity then return 0 end
+  local vx = tonumber(velocity.x or velocity[1]) or 0
+  local vz = tonumber(velocity.z or velocity[3]) or 0
+  if type(heading) == "table" then
+    local hx = tonumber(heading.x or heading[1])
+    local hz = tonumber(heading.z or heading[3])
+    if hx and hz then return vx * hx + vz * hz end
+  end
+  return math.sqrt(vx * vx + vz * vz)
+end
+
 local config, configErr = load(CONFIG_PATH)
 if type(config) ~= "table" then printError("Config error: " .. tostring(configErr or "missing config")); return end
 
@@ -138,14 +151,15 @@ local function controlTick()
         local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
         splitAxis(vertical, "up", "down", commands)
 
-        local speed = tonumber(state.speed) or 0
-        local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
-        splitAxis(thrust, "forward", "reverse", commands)
-
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
-        if headingAlignment and headingAlignment < tonumber(fc.minimumThrustAlignment or 0.25) then
-          commands.forward = commands.forward * math.max(0, (headingAlignment + 1) / 1.25)
+        local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
+        local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.75) then
+          thrust = 0
+          speedPID:reset()
         end
+        thrust = math.max(0, thrust)
+        splitAxis(thrust, "forward", "reverse", commands)
       end
     end
   elseif mode == "hover" then
@@ -154,9 +168,7 @@ local function controlTick()
     splitAxis(vertical, "up", "down", commands)
     local body = state.bodyVelocity or {}
     local forwardSpeed = tonumber(body.z or body.forward) or 0
-    local lateralSpeed = tonumber(body.x or body.sideways) or 0
     splitAxis(-forwardSpeed * tonumber(fc.hoverVelocityGain or 0.18), "forward", "reverse", commands)
-    splitAxis(-lateralSpeed * tonumber(fc.hoverVelocityGain or 0.18), "right", "left", commands)
   else
     fault = "unsupported mode " .. mode
     save(MODE_PATH, { mode = "standby" })

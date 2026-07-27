@@ -31,10 +31,12 @@ local function normalizeHorizontal(value)
   return { x = value.x / length, y = 0, z = value.z / length }
 end
 
-local function speed(state)
+local function horizontalSpeed(state, heading)
   local velocity = vector(state.velocity)
   if not velocity then return 0 end
-  return math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z)
+  heading = normalizeHorizontal(heading)
+  if heading then return velocity.x * heading.x + velocity.z * heading.z end
+  return math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
 end
 
 local function ensureAttitude(config, state)
@@ -61,13 +63,11 @@ end
 local function horizontalRates(state, forward, right)
   local body = type(state.bodyVelocity) == "table" and state.bodyVelocity or {}
   local forwardRate = tonumber(body.forward or body.z)
-  local lateralRate = tonumber(body.right or body.sideways or body.x)
   local velocity = vector(state.velocity)
   if velocity then
     forwardRate = forwardRate or (velocity.x * forward.x + velocity.z * forward.z)
-    lateralRate = lateralRate or (velocity.x * right.x + velocity.z * right.z)
   end
-  return forwardRate or 0, lateralRate or 0
+  return forwardRate or 0
 end
 
 function Control.new(config)
@@ -155,13 +155,11 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
 
   local dx, dy, dz = target.x - position.x, target.y - position.y, target.z - position.z
   local forwardError = dx * forward.x + dz * forward.z
-  local lateralError = dx * right.x + dz * right.z
-  local forwardRate, lateralRate = horizontalRates(state, forward, right)
+  local forwardRate = horizontalRates(state, forward, right)
   local velocity = vector(state.velocity)
   local verticalRate = tonumber(state.verticalSpeed) or (velocity and velocity.y) or 0
 
   self:setAxis(commands, self.positionForward:update(forwardError, dt, forwardRate), "forward", "reverse", "precision-forward", true)
-  self:setAxis(commands, self.positionLateral:update(lateralError, dt, lateralRate), "right", "left", "precision-lateral", true)
   self:setAxis(commands, self.positionVertical:update(dy, dt, verticalRate), "up", "down", "precision-vertical", true)
 
   notes[#notes + 1] = string.format("precision x %.4f y %.4f z %.4f", guidance.xError or 0, guidance.yError or 0, guidance.zError or 0)
@@ -195,8 +193,7 @@ function Control:outputs(state)
     local guidance, fault = Director.solve(state, state.target, self.config)
     if not guidance then return nil, { tostring(fault or "guidance unavailable") }, false end
 
-    local precisionRadius = tonumber((self.config.navigation or {}).precisionRadius) or 3
-    if guidance.distance <= precisionRadius then
+    if guidance.arrived then
       self.heading:reset()
       self.speed:reset()
       if self:precisionHold(state, guidance, commands, dt, notes) then return commands, notes, true end
@@ -214,14 +211,18 @@ function Control:outputs(state)
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
     self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
 
-    local thrust = self.speed:update((guidance.desiredSpeed or 0) - speed(state), dt)
-    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.25
-    if alignment and alignment < minimumAlignment then
-      thrust = thrust * math.max(0, (alignment + 1) / (minimumAlignment + 1))
+    local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
+    local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
+    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.75
+    if not alignment or alignment < minimumAlignment then
+      thrust = 0
+      self.speed:reset()
     end
+    thrust = math.max(0, thrust)
     self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
-    notes[#notes + 1] = string.format("distance %.2f", guidance.distance or 0)
-    notes[#notes + 1] = string.format("alignment %.2f", alignment or 0)
+    notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
+    notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
+    notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)
     return commands, notes, true
   end
 
@@ -234,10 +235,8 @@ function Control:outputs(state)
     end
     local body = state.bodyVelocity or {}
     local forwardSpeed = tonumber(body.forward or body.z) or 0
-    local lateralSpeed = tonumber(body.right or body.sideways or body.x) or 0
     local gain = tonumber(self.fc.hoverVelocityGain) or 0.18
     self:setAxis(commands, -forwardSpeed * gain, "forward", "reverse", "hover-forward", true)
-    self:setAxis(commands, -lateralSpeed * gain, "right", "left", "hover-lateral", true)
     notes[#notes + 1] = "position damping"
     return commands, notes, true
   end
