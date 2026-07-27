@@ -1,5 +1,5 @@
 local ROOT = "/navremote"
-local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
+local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/remote/"
 local args = { ... }
 
 local function fetchText(url)
