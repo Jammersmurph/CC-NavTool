@@ -1048,7 +1048,9 @@ local function server(config, debug)
       if now - lastAutomation >= interval then
         lastAutomation = now
         local mode = loadMode().mode or "standby"
-        if mode ~= "standby" or loadActiveSchedule() then
+        local activeSchedule = loadActiveSchedule()
+        local target = loadTarget()
+        if activeSchedule or (mode ~= "standby" and (mode == "hover" or target)) then
           local ok, err = pcall(serverAutomationTick, config, automationOutputController)
           if not ok then printError("Automation tick failed: " .. tostring(err)) end
         end
