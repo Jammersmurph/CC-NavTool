@@ -75,11 +75,9 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       local current=hardware.assignments and hardware.assignments[control] or {}
       local add=false
       local proceed=true
-      if current.count and current.count>0 then
-        local mode=tostring(prompt("Assignment: replace or add",current.count>1 and "add" or "replace")):lower()
-        if mode=="add" then add=true
-        elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
-      end
+      local mode=tostring(prompt("Assignment: replace or add","replace")):lower()
+      if mode=="add" then add=true
+      elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
       if proceed then
         local defaultKind=current.kind=="relay" and "relay" or current.targets and current.targets[1] and current.targets[1].kind=="relay" and "relay" or "local"
         local kind=tostring(prompt("Device: local or relay",defaultKind)):lower()
