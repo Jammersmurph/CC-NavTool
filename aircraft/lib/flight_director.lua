@@ -42,8 +42,9 @@ local function stagedTarget(state, target, config)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
     or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
-  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 300
-  local cruiseAltitudeTolerance = math.max(0.001, tonumber(navigation.cruiseAltitudeTolerance) or tonumber(navigation.verticalTolerance) or 0.5)
+  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or tonumber(navigation.cruiseAltitudeMinimum) or 300
+  local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
+  local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
 
   local horizontallyLocked = math.abs(dx) <= horizontalTolerance
     and math.abs(dz) <= horizontalTolerance
@@ -84,8 +85,9 @@ local function stagedTarget(state, target, config)
     settleVelocity = settleVelocity,
     transitionRadius = transitionRadius,
     cruiseAltitude = cruiseAltitude,
-    cruiseAltitudeTolerance = cruiseAltitudeTolerance,
-    cruiseAltitudeReady = math.abs(position.y - cruiseAltitude) <= cruiseAltitudeTolerance,
+    cruiseAltitudeMinimum = cruiseAltitudeMinimum,
+    cruiseAltitudeMaximum = cruiseAltitudeMaximum,
+    cruiseAltitudeReady = position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum,
   }
 end
 

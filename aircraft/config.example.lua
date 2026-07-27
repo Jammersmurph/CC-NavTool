@@ -34,12 +34,13 @@ return {
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:
-    -- While outside the horizontal transition radius, fly at Y=300.
-    -- Horizontal travel waits until the aircraft is within this tolerance of Y=300.
+    -- While outside the horizontal transition radius, climb toward Y=300.
+    -- Horizontal travel is allowed anywhere inside the cruise band.
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
     cruiseAltitude = 300,
-    cruiseAltitudeTolerance = 0.5,
+    cruiseAltitudeMinimum = 300,
+    cruiseAltitudeMaximum = 500,
     verticalTransitionRadius = 3,
     followHorizontalRadius = 10,
     followHeightOffset = 10,
