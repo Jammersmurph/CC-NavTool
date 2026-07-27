@@ -693,6 +693,47 @@ end
 
 local startSchedule
 local serverAutomationTick
+local renderMonitorStatus
+
+local function hasPeripheralType(name, wanted)
+  local ok, value = pcall(peripheral.getType, name)
+  if not ok then return false end
+  if type(value) == "table" then
+    for _, item in ipairs(value) do if item == wanted then return true end end
+    return false
+  end
+  return value == wanted
+end
+
+local function monitorList(config)
+  local monitors = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    if hasPeripheralType(name, "monitor") then
+      local width, height
+      local ok, wrapped = pcall(peripheral.wrap, name)
+      if ok and wrapped and wrapped.getSize then width, height = wrapped.getSize() end
+      monitors[#monitors + 1] = {
+        name = name,
+        selected = type(config) == "table" and config.monitorPeripheral == name,
+        width = width,
+        height = height,
+      }
+    end
+  end
+  table.sort(monitors, function(a, b) return tostring(a.name) < tostring(b.name) end)
+  return monitors
+end
+
+local function setMonitorPeripheral(config, name)
+  name = tostring(name or "")
+  if name == "" or name == "none" or name == "clear" then
+    config.monitorPeripheral = nil
+    return true
+  end
+  if not peripheral.isPresent(name) or not hasPeripheralType(name, "monitor") then return false, "monitor unavailable" end
+  config.monitorPeripheral = name
+  return true
+end
 
 local function promptRunSchedule()
   term.clear()
@@ -952,6 +993,16 @@ local function server(config, debug)
               response = { ok = false, error = "output failed" }
             end
           end
+        elseif request.command == "monitor-list" then
+          response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
+        elseif request.command == "monitor-set" then
+          local okMonitor, result = setMonitorPeripheral(config, request.monitor)
+          if okMonitor then
+            saveConfig(config)
+            response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
+          else
+            response = { ok = false, error = result }
+          end
         elseif request.command == "waypoint-list" then
           local waypoints, names = waypointList()
           response = { ok = true, waypoints = waypoints, names = names }
@@ -1067,8 +1118,15 @@ local function server(config, debug)
         local activeSchedule = loadActiveSchedule()
         local target = loadTarget()
         if activeSchedule or (mode ~= "standby" and (mode == "hover" or target)) then
-          local ok, err = pcall(serverAutomationTick, config, automationOutputController)
-          if not ok then printError("Automation tick failed: " .. tostring(err)) end
+          local ok, state, requested, applied, notes = pcall(serverAutomationTick, config, automationOutputController)
+          if ok then
+            if renderMonitorStatus then pcall(renderMonitorStatus, config, state, requested, applied, notes) end
+          else
+            printError("Automation tick failed: " .. tostring(state))
+          end
+        else
+          local state = snapshot(config, { library = false, schedule = false, gps = false })
+          if renderMonitorStatus then pcall(renderMonitorStatus, config, state, {}, {}, { "standby" }) end
         end
       end
     end
@@ -1349,8 +1407,9 @@ serverAutomationTick = function(config, outputController)
       end
     end
   end
-  local requested = automationOutputs(config, state)
-  if outputController then outputController(requested, state.mode == "standby") else applyOutputs(config, requested) end
+  local requested, notes = automationOutputs(config, state)
+  local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
+  return state, requested, applied, notes
 end
 
 local function automate(config)
@@ -1498,6 +1557,47 @@ local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
   return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+end
+
+renderMonitorStatus = function(config, state, requested, applied, notes)
+  local name = config and config.monitorPeripheral
+  if not name or not peripheral.isPresent(name) or not hasPeripheralType(name, "monitor") then return false end
+  local monitor = peripheral.wrap(name)
+  if not monitor then return false end
+  pcall(monitor.setTextScale, tonumber(config.monitorTextScale) or 0.5)
+  local width, height = monitor.getSize()
+  color(monitor, colors.black, colors.white)
+  monitor.clear()
+  color(monitor, colors.blue, colors.white)
+  monitor.setCursorPos(1, 1)
+  monitor.write(string.rep(" ", width))
+  writeAt(monitor, 2, 1, "CC-NavTool Monitor")
+  color(monitor, colors.black, colors.white)
+
+  state = state or snapshot(config, { library = false, schedule = false, gps = false })
+  requested = requested or {}
+  applied = applied or {}
+  notes = notes or {}
+  local y = 3
+  line(monitor, 2, y, "Mode: ", state.mode or "standby"); y = y + 1
+  line(monitor, 2, y, "Telemetry: ", state.telemetry and "ONLINE" or "OFFLINE"); y = y + 1
+  line(monitor, 2, y, "Source: ", state.source or state.peripheral or "none"); y = y + 1
+  line(monitor, 2, y, "Position: ", vectorText(state.position)); y = y + 1
+  line(monitor, 2, y, "Velocity: ", vectorText(state.velocity)); y = y + 1
+  line(monitor, 2, y, "Heading: ", vectorText(state.heading)); y = y + 1
+  line(monitor, 2, y, "Target: ", targetText(state.target)); y = y + 1
+  if state.distanceToTarget then line(monitor, 2, y, "Distance: ", string.format("%.1f", state.distanceToTarget)); y = y + 1 end
+  if state.activeSchedule then
+    line(monitor, 2, y, "Schedule: ", tostring(state.activeSchedule.name) .. " #" .. tostring(state.activeSchedule.index)); y = y + 1
+  end
+  y = y + 1
+  line(monitor, 2, y, "Outputs: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  for _, note in ipairs(notes) do
+    if y > height then break end
+    writeAt(monitor, 2, y, tostring(note):sub(1, math.max(1, width - 2)))
+    y = y + 1
+  end
+  return true
 end
 
 local function drawInterface(config, target, menu, state)
