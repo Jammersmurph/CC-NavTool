@@ -144,8 +144,12 @@ local function controlTick()
         mode = "hover"
       else
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
-        local yaw = headingPID:update(headingError or 0, dt)
-        splitAxis(yaw, "left", "right", commands)
+        if guidance.finalCapture then
+          headingPID:reset()
+        else
+          local yaw = headingPID:update(headingError or 0, dt)
+          splitAxis(yaw, "left", "right", commands)
+        end
 
         if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
           altitudePID:reset()
@@ -161,8 +165,16 @@ local function controlTick()
           thrust = 0
           speedPID:reset()
         end
-        thrust = math.max(0, thrust)
-        splitAxis(thrust, "forward", "reverse", commands)
+        if guidance.shouldBrake then
+          speedPID:reset()
+          local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber((config.navigation or {}).cruiseSpeed) or 12)))
+          splitAxis(-brake, "forward", "reverse", commands)
+        elseif guidance.finalCapture then
+          speedPID:reset()
+        else
+          thrust = math.max(0, thrust)
+          splitAxis(thrust, "forward", "reverse", commands)
+        end
       end
     end
   elseif mode == "hover" then
