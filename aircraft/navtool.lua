@@ -257,6 +257,9 @@ local function makeOutputController(config)
   local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
   local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
   local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  local pulseAutomation = automation.pulseAutomationOutputs ~= false
+  local outputPulsePeriod = math.max(0.05, tonumber(automation.outputPulsePeriod) or 0.4)
+  local outputPulseWidth = math.max(0.05, math.min(outputPulsePeriod, tonumber(automation.outputPulseWidth) or 0.3))
   return function(requested, forceClear)
     requested = requested or {}
     local applied = {}
@@ -274,6 +277,10 @@ local function makeOutputController(config)
         state.last = now
         state.value = requestedValue
         if now - state.since >= holdAfter then state.holding = true end
+        if pulseAutomation then
+          local phase = (now - state.since) % outputPulsePeriod
+          if phase >= outputPulseWidth then value = 0 end
+        end
       elseif state then
         local grace = state.holding and holdReleaseGrace or pulseReleaseGrace
         if now - state.last <= grace then
