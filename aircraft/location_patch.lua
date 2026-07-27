@@ -50,7 +50,7 @@ function Patch.apply(source)
           local okTest, result = Hardware.test(config, request.control, request.strength)
           response = okTest and { ok = true } or { ok = false, error = result }
         elseif request.command == "location-list" then
-          response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following() }
+          response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following(), tracking = LocationNetwork.status() }
         elseif request.command == "follow-remote" then
           local okFollow, result = LocationNetwork.follow(request.remote)
           response = okFollow and { ok = true, remote = result, following = result.id } or { ok = false, error = result }

@@ -1,4 +1,4 @@
-local VERSION = "0.3.0-dev"
+local VERSION = "0.4.0-alpha"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -408,7 +408,7 @@ local function headingFromPose(config, pose)
   local q = extractQuaternion(pose)
   if q then
     local orientation = type(config.orientation) == "table" and config.orientation or {}
-    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = -1 }
+    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = 1 }
     local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
     if rotated then return rotated, "pose-quaternion" end
   end
@@ -680,8 +680,12 @@ local function promptSchedule()
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
     stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
   end
+  write("Dwell seconds at each stop: ")
+  local dwell = math.max(0, tonumber(read()) or 0)
+  write("Loop schedule? y/N: ")
+  local loop = tostring(read() or ""):lower():sub(1, 1) == "y"
   local schedules = loadSchedules()
-  schedules[name] = { name = name, stops = stops }
+  schedules[name] = { name = name, stops = stops, dwell = dwell, loop = loop }
   saveSchedules(schedules)
   print("Schedule saved.")
   sleep(1)
@@ -689,6 +693,47 @@ end
 
 local startSchedule
 local serverAutomationTick
+local renderMonitorStatus
+
+local function hasPeripheralType(name, wanted)
+  local ok, value = pcall(peripheral.getType, name)
+  if not ok then return false end
+  if type(value) == "table" then
+    for _, item in ipairs(value) do if item == wanted then return true end end
+    return false
+  end
+  return value == wanted
+end
+
+local function monitorList(config)
+  local monitors = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    if hasPeripheralType(name, "monitor") then
+      local width, height
+      local ok, wrapped = pcall(peripheral.wrap, name)
+      if ok and wrapped and wrapped.getSize then width, height = wrapped.getSize() end
+      monitors[#monitors + 1] = {
+        name = name,
+        selected = type(config) == "table" and config.monitorPeripheral == name,
+        width = width,
+        height = height,
+      }
+    end
+  end
+  table.sort(monitors, function(a, b) return tostring(a.name) < tostring(b.name) end)
+  return monitors
+end
+
+local function setMonitorPeripheral(config, name)
+  name = tostring(name or "")
+  if name == "" or name == "none" or name == "clear" then
+    config.monitorPeripheral = nil
+    return true
+  end
+  if not peripheral.isPresent(name) or not hasPeripheralType(name, "monitor") then return false, "monitor unavailable" end
+  config.monitorPeripheral = name
+  return true
+end
 
 local function promptRunSchedule()
   term.clear()
@@ -948,6 +993,16 @@ local function server(config, debug)
               response = { ok = false, error = "output failed" }
             end
           end
+        elseif request.command == "monitor-list" then
+          response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
+        elseif request.command == "monitor-set" then
+          local okMonitor, result = setMonitorPeripheral(config, request.monitor)
+          if okMonitor then
+            saveConfig(config)
+            response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
+          else
+            response = { ok = false, error = result }
+          end
         elseif request.command == "waypoint-list" then
           local waypoints, names = waypointList()
           response = { ok = true, waypoints = waypoints, names = names }
@@ -995,7 +1050,12 @@ local function server(config, debug)
             end
             if normalized then
               local schedules = loadSchedules()
-              schedules[name] = { name = name, stops = normalized }
+              schedules[name] = {
+                name = name,
+                stops = normalized,
+                dwell = math.max(0, tonumber(schedule.dwell) or 0),
+                loop = schedule.loop == true,
+              }
               saveSchedules(schedules)
               response = { ok = true, schedule = schedules[name] }
             else
@@ -1058,8 +1118,15 @@ local function server(config, debug)
         local activeSchedule = loadActiveSchedule()
         local target = loadTarget()
         if activeSchedule or (mode ~= "standby" and (mode == "hover" or target)) then
-          local ok, err = pcall(serverAutomationTick, config, automationOutputController)
-          if not ok then printError("Automation tick failed: " .. tostring(err)) end
+          local ok, state, requested, applied, notes = pcall(serverAutomationTick, config, automationOutputController)
+          if ok then
+            if renderMonitorStatus then pcall(renderMonitorStatus, config, state, requested, applied, notes) end
+          else
+            printError("Automation tick failed: " .. tostring(state))
+          end
+        else
+          local state = snapshot(config, { library = false, schedule = false, gps = false })
+          if renderMonitorStatus then pcall(renderMonitorStatus, config, state, {}, {}, { "standby" }) end
         end
       end
     end
@@ -1253,11 +1320,71 @@ local function automationOutputs(config, state)
   return outputs, notes
 end
 
+local function nowSeconds()
+  return os.epoch and (os.epoch("utc") / 1000) or os.clock()
+end
+
+local function stopReached(config, state, stop)
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local position = extractVector(state and state.position)
+  if not position or type(stop) ~= "table" then return false end
+  local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
+  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
+  local dx = (tonumber(stop.x) or position.x) - position.x
+  local dy = (tonumber(stop.y) or position.y) - position.y
+  local dz = (tonumber(stop.z) or position.z) - position.z
+  return math.abs(dx) <= horizontalTolerance and math.abs(dy) <= verticalTolerance and math.abs(dz) <= horizontalTolerance
+end
+
+local function advanceScheduleStop(config, active, schedule, index, state)
+  local stop = schedule.stops[index]
+  if not stopReached(config, state, stop) then
+    if active.dwellUntil or active.dwellIndex then
+      active.dwellUntil = nil
+      active.dwellIndex = nil
+      saveActiveSchedule(active)
+    end
+    return false, "travel"
+  end
+
+  local dwell = math.max(0, tonumber(schedule.dwell) or 0)
+  local now = nowSeconds()
+  if dwell > 0 then
+    if active.dwellIndex ~= index or not active.dwellUntil then
+      active.dwellIndex = index
+      active.dwellUntil = now + dwell
+      saveActiveSchedule(active)
+      return false, "dwell"
+    end
+    if now < active.dwellUntil then return false, "dwell" end
+  end
+
+  active.dwellIndex = nil
+  active.dwellUntil = nil
+  if index >= #schedule.stops then
+    if schedule.loop == true then
+      active.index = 1
+      saveActiveSchedule(active)
+      saveTarget(schedule.stops[1])
+      saveMode("navigate")
+      return true, "loop"
+    end
+    saveActiveSchedule(nil)
+    saveMode("standby")
+    clearOutputs(config)
+    return true, "complete"
+  end
+
+  active.index = index + 1
+  saveActiveSchedule(active)
+  saveTarget(schedule.stops[active.index])
+  saveMode("navigate")
+  return true, "advance"
+end
+
 serverAutomationTick = function(config, outputController)
   local state = snapshot(config, { library = false, gps = false })
   local active = state.activeSchedule
-  local navigation = type(config.navigation) == "table" and config.navigation or {}
-  local arrivalRadius = tonumber(navigation.arrivalRadius) or 5
   if active then
     local schedules = loadSchedules()
     local schedule = schedules[active.name]
@@ -1274,29 +1401,19 @@ serverAutomationTick = function(config, outputController)
         saveMode("navigate")
         state = snapshot(config, { library = false, gps = false })
       end
-      if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
-        if index >= #schedule.stops then
-          saveActiveSchedule(nil)
-          saveMode("standby")
-          clearOutputs(config)
-          state = snapshot(config, { library = false, gps = false })
-        else
-          active.index = index + 1
-          saveActiveSchedule(active)
-          saveTarget(schedule.stops[active.index])
-          saveMode("navigate")
-          state = snapshot(config, { library = false, gps = false })
-        end
+      local advanced = advanceScheduleStop(config, active, schedule, index, state)
+      if advanced then
+        state = snapshot(config, { library = false, gps = false })
       end
     end
   end
-  local requested = automationOutputs(config, state)
-  if outputController then outputController(requested, state.mode == "standby") else applyOutputs(config, requested) end
+  local requested, notes = automationOutputs(config, state)
+  local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
+  return state, requested, applied, notes
 end
 
 local function automate(config)
   local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
-  local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
   local outputController = makeOutputController(config)
   print("CC-NavTool automation")
   print("Redstone outputs are bounded by config safety limits.")
@@ -1332,20 +1449,14 @@ local function automate(config)
         print("Stop: " .. index .. "/" .. #schedule.stops .. " " .. tostring(stop.name or ""))
         print(string.format("Target: %.1f %.1f %.1f", tonumber(stop.x) or 0, tonumber(stop.y) or 0, tonumber(stop.z) or 0))
         if state.distanceToTarget then print(string.format("Distance: %.1f", state.distanceToTarget)) else print("Distance: unknown") end
-        if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
-          if index >= #schedule.stops then
-            print("Schedule complete. Returning to standby.")
-            saveActiveSchedule(nil)
-            saveMode("standby")
-            clearOutputs(config)
-          else
-            active.index = index + 1
-            saveActiveSchedule(active)
-            saveTarget(schedule.stops[active.index])
-            saveMode("navigate")
-            print("Advancing to next stop.")
-          end
-        end
+        local advanced, phase = advanceScheduleStop(config, active, schedule, index, state)
+        local dwellRemaining = active.dwellUntil and math.max(0, active.dwellUntil - nowSeconds()) or 0
+        if phase == "dwell" then print(string.format("Dwell: %.1fs remaining", dwellRemaining))
+        elseif phase == "advance" then print("Advancing to next stop.")
+        elseif phase == "loop" then print("Looping schedule.")
+        elseif phase == "complete" then print("Schedule complete. Returning to standby.")
+        else print("Schedule phase: travel") end
+        if advanced then state = snapshot(config, { library = false }) end
       end
     end
     print("")
@@ -1446,6 +1557,47 @@ local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
   return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+end
+
+renderMonitorStatus = function(config, state, requested, applied, notes)
+  local name = config and config.monitorPeripheral
+  if not name or not peripheral.isPresent(name) or not hasPeripheralType(name, "monitor") then return false end
+  local monitor = peripheral.wrap(name)
+  if not monitor then return false end
+  pcall(monitor.setTextScale, tonumber(config.monitorTextScale) or 0.5)
+  local width, height = monitor.getSize()
+  color(monitor, colors.black, colors.white)
+  monitor.clear()
+  color(monitor, colors.blue, colors.white)
+  monitor.setCursorPos(1, 1)
+  monitor.write(string.rep(" ", width))
+  writeAt(monitor, 2, 1, "CC-NavTool Monitor")
+  color(monitor, colors.black, colors.white)
+
+  state = state or snapshot(config, { library = false, schedule = false, gps = false })
+  requested = requested or {}
+  applied = applied or {}
+  notes = notes or {}
+  local y = 3
+  line(monitor, 2, y, "Mode: ", state.mode or "standby"); y = y + 1
+  line(monitor, 2, y, "Telemetry: ", state.telemetry and "ONLINE" or "OFFLINE"); y = y + 1
+  line(monitor, 2, y, "Source: ", state.source or state.peripheral or "none"); y = y + 1
+  line(monitor, 2, y, "Position: ", vectorText(state.position)); y = y + 1
+  line(monitor, 2, y, "Velocity: ", vectorText(state.velocity)); y = y + 1
+  line(monitor, 2, y, "Heading: ", vectorText(state.heading)); y = y + 1
+  line(monitor, 2, y, "Target: ", targetText(state.target)); y = y + 1
+  if state.distanceToTarget then line(monitor, 2, y, "Distance: ", string.format("%.1f", state.distanceToTarget)); y = y + 1 end
+  if state.activeSchedule then
+    line(monitor, 2, y, "Schedule: ", tostring(state.activeSchedule.name) .. " #" .. tostring(state.activeSchedule.index)); y = y + 1
+  end
+  y = y + 1
+  line(monitor, 2, y, "Outputs: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  for _, note in ipairs(notes) do
+    if y > height then break end
+    writeAt(monitor, 2, y, tostring(note):sub(1, math.max(1, width - 2)))
+    y = y + 1
+  end
+  return true
 end
 
 local function drawInterface(config, target, menu, state)

@@ -96,6 +96,35 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local okDelete,e=request("hardware-unassign",{control=control,index=index,all=all})
     message=okDelete and (control.." binding deleted") or tostring(e)
   end
+  local function configureMonitor()
+    local response,e=request("monitor-list")
+    if not response then message=tostring(e); return end
+    local monitors=response.monitors or {}
+    clear(colors.black); header("Monitor")
+    writeAt(3,3,"Aircraft LAN monitors",colors.cyan)
+    if #monitors==0 then
+      writeAt(3,5,"No monitors visible to aircraft.",colors.yellow)
+      writeAt(3,7,"Attach through wired modem LAN or directly.",colors.lightGray)
+      waitBack("Q: back")
+      return
+    end
+    for i,item in ipairs(monitors) do
+      local marker=item.selected and "*" or " "
+      local size=item.width and (" "..tostring(item.width).."x"..tostring(item.height)) or ""
+      writeAt(3,i+4,marker..tostring(i)..". "..tostring(item.name)..size,item.selected and colors.lime or colors.white)
+    end
+    writeAt(3,#monitors+6,"Type number to select, clear to disable.",colors.lightGray)
+    local answer=tostring(prompt("Monitor","1")):lower()
+    local monitor=nil
+    if answer=="clear" or answer=="none" then
+      monitor="clear"
+    else
+      local index=tonumber(answer)
+      if index and monitors[index] then monitor=monitors[index].name else monitor=answer end
+    end
+    local okSet,setErr=request("monitor-set",{monitor=monitor})
+    message=okSet and (monitor=="clear" and "Monitor disabled" or "Monitor set: "..tostring(monitor)) or tostring(setErr)
+  end
   while true do
     local response,err=request("hardware-list")
     local hardware=response and response.hardware or {assignments={},relays={}}
@@ -126,7 +155,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     fill(3,buttonY,18,1,colors.blue); writeAt(5,buttonY,"ADD ASSIGNMENT",colors.white,colors.blue)
     fill(24,buttonY,18,1,colors.red); writeAt(29,buttonY,"DELETE",colors.white,colors.red)
     writeAt(3,buttonY+1,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("+N/row text: expand  Number: edit  A:add  D:delete  Q:back")
+    footer("Number: edit  A:add  D:delete  M:monitor  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
     local forceAdd=false
@@ -139,6 +168,9 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       end
       if a==keys.d then
         deleteAssignment(hardware)
+      end
+      if a==keys.m then
+        configureMonitor()
       end
       if a==keys.t then
         local chosen=tonumber(prompt("Control number to test","1"))

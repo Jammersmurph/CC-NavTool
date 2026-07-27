@@ -4,6 +4,7 @@ local remotes = {}
 local followId
 local config
 local callbacks
+local stats = { received = 0, accepted = 0, rejectedKey = 0, rejectedHost = 0, rejectedChannel = 0, invalid = 0 }
 
 local function wirelessModem()
   for _, name in ipairs(peripheral.getNames()) do
@@ -52,6 +53,28 @@ function LocationNetwork.list()
     return al < bl
   end)
   return result
+end
+
+function LocationNetwork.status()
+  prune()
+  local tracking = config and config.locationTracking or {}
+  local modemName = wirelessModem()
+  local count = 0
+  for _ in pairs(remotes) do count = count + 1 end
+  return {
+    enabled = tracking.enabled == true,
+    port = math.max(1, math.min(65535, tonumber(tracking.port) or 9999)),
+    timeout = tonumber(tracking.timeout) or 12,
+    modem = modemName,
+    hasWireless = modemName ~= nil,
+    count = count,
+    received = stats.received,
+    accepted = stats.accepted,
+    rejectedKey = stats.rejectedKey,
+    rejectedHost = stats.rejectedHost,
+    rejectedChannel = stats.rejectedChannel,
+    invalid = stats.invalid,
+  }
 end
 
 local function resolveRemote(value)
@@ -106,13 +129,17 @@ function LocationNetwork.run()
   while true do
     local _, side, channel, _, message, distance = os.pullEvent("modem_message")
     if side == modemName and channel == port and type(message) == "table" and message.type == "NAVREMOTE_LOCATION" then
+      stats.received = stats.received + 1
       local network = config.network or {}
       local validKey = tostring(message.key or "") == tostring(network.sharedKey or "")
-      local validHost = message.aircraftHost == nil or tostring(message.aircraftHost) == tostring(network.host or "navtool-aircraft")
+      -- The remote profile host can drift from the aircraft's advertised Rednet host
+      -- after relinking/renaming. Key and channel still identify the intended fleet.
+      local validHost = true
       local validChannel = message.rednetChannel == nil or tostring(message.rednetChannel) == tostring(network.channel or "cc-navtool")
       local x, y, z = tonumber(message.x), tonumber(message.y), tonumber(message.z)
       local id = tonumber(message.id)
       if validKey and validHost and validChannel and id and x and y and z then
+        stats.accepted = stats.accepted + 1
         local item = {
           id = id,
           label = tostring(message.label or ("NavRemote " .. id)),
@@ -124,6 +151,11 @@ function LocationNetwork.run()
         -- followId intentionally survives stale periods. When the selected NavRemote
         -- returns to GPS/radio range, following resumes automatically.
         if followId == id and callbacks and callbacks.setTarget then callbacks.setTarget(item, true) end
+      else
+        if not validKey then stats.rejectedKey = stats.rejectedKey + 1 end
+        if not validHost then stats.rejectedHost = stats.rejectedHost + 1 end
+        if not validChannel then stats.rejectedChannel = stats.rejectedChannel + 1 end
+        if not id or not x or not y or not z then stats.invalid = stats.invalid + 1 end
       end
     end
   end

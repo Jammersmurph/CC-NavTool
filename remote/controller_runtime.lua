@@ -74,21 +74,38 @@ local function chooseAircraft(channel)
 end
 
 local function chooseLocationRemote(title)
-  local remotes, lastErr = {}, nil
+  local remotes, lastErr, tracking = {}, nil, nil
   local deadline = os.clock() + 8
   repeat
     local response,err=request("location-list")
-    if response then remotes=response.remotes or {} else lastErr=err end
+    if response then remotes=response.remotes or {}; tracking=response.tracking else lastErr=err end
     clear(colors.black); header(title or "NavRemotes")
     writeAt(3,4,"Scanning for broadcasting NavRemotes...",colors.cyan)
-    writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
-    writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
+    if tracking then
+      writeAt(3,6,"Aircraft tracking: "..(tracking.enabled and "enabled" or "disabled"),tracking.enabled and colors.lime or colors.red)
+      writeAt(3,7,"Aircraft modem: "..tostring(tracking.modem or "none"),tracking.hasWireless and colors.lime or colors.red)
+      writeAt(3,8,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
+      writeAt(3,9,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+    else
+      writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
+      writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
+    end
     if #remotes>0 then break end
     sleep(0.5)
   until os.clock() >= deadline
   if lastErr and #remotes==0 then message=lastErr or "Location tracking unavailable"; return nil end
   clear(colors.black); header(title or "NavRemotes")
-  if #remotes==0 then writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow); writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray); waitBack(); return nil end
+  if #remotes==0 then
+    writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow)
+    if tracking then
+      writeAt(3,6,"Tracking: "..(tracking.enabled and "enabled" or "disabled").."  Modem: "..tostring(tracking.modem or "none"),colors.lightGray)
+      writeAt(3,7,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
+      writeAt(3,8,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+    else
+      writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray)
+    end
+    waitBack(); return nil
+  end
   local current=nowMs()
   for i,item in ipairs(remotes) do
     if i>12 then break end
@@ -300,13 +317,13 @@ end,1)
 
 local newProfiles = [[local function profilesPage()
   while true do
-    clear(colors.black); header("Aircraft")
+    clear(colors.black); header("Profiles")
     local names=Storage.names(config.profiles)
     for i,name in ipairs(names) do
       local marker=name==config.activeProfile and ">" or " "
       writeAt(3,i+3,marker.." "..tostring(i)..". "..name.."  "..tostring(config.profiles[name].host or ""),name==config.activeProfile and colors.lime or colors.white)
     end
-    footer("Number: select  A:add  F:find  E:edit  D:delete  Esc:back")
+    footer("Number: select  A:add  F:find  B:bind  E:edit  D:delete  Esc:back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then return
     elseif key==keys.f then
@@ -314,9 +331,25 @@ local newProfiles = [[local function profilesPage()
       local found=chooseAircraft(channel)
       if found then
         local name=prompt("Aircraft profile",found.host)
+        local host=prompt("Aircraft host",found.host)
         local shared=prompt("Shared key","",true)
-        config.profiles[name]={channel=channel,host=found.host,sharedKey=shared,timeout=3,computerId=found.id}
-        config.activeProfile=name; saveConfig(); Storage.load(name); message="Imported "..found.host; return
+        config.profiles[name]={channel=channel,host=host,sharedKey=shared,timeout=3,computerId=found.id}
+        config.activeProfile=name; saveConfig(); Storage.load(name); message="Imported "..host; return
+      end
+    elseif key==keys.b then
+      local current=config.activeProfile
+      if not current or not config.profiles[current] then message="No profile selected"
+      else
+        local channel=prompt("Discovery channel",config.profiles[current].channel or "cc-navtool")
+        local found=chooseAircraft(channel)
+        if found and confirm("Bind "..tostring(current).." to "..tostring(found.host)) then
+          local host=prompt("Aircraft host",found.host)
+          local shared=prompt("Shared key (blank keeps)","",true)
+          local p=config.profiles[current]
+          p.channel=channel; p.host=host; p.computerId=found.id
+          if shared~="" then p.sharedKey=shared end
+          saveConfig(); message="Rebound "..tostring(current).." to "..tostring(host); return
+        end
       end
     elseif key==keys.a then
       local name=prompt("Aircraft name")
