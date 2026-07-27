@@ -26,6 +26,10 @@ local function loadConfig()
     config.safety.maximumOutput = 15
     config._migrated = true
   end
+  if type(config.navigation) == "table" and tonumber(config.navigation.cruiseAltitude) == 300 then
+    config.navigation.cruiseAltitude = 350
+    config._migrated = true
+  end
   return config
 end
 

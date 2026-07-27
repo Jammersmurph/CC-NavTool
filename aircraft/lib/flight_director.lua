@@ -42,7 +42,7 @@ local function stagedTarget(state, target, config)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
     or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
-  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or tonumber(navigation.cruiseAltitudeMinimum) or 300
+  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 350
   local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
   local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
 
@@ -59,7 +59,11 @@ local function stagedTarget(state, target, config)
     desiredY = final.y
     phase = "final-altitude"
   elseif horizontalDistance > transitionRadius then
-    desiredY = cruiseAltitude
+    if position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum then
+      desiredY = position.y
+    else
+      desiredY = cruiseAltitude
+    end
     phase = "horizontal-cruise"
   else
     -- Inside the precision approach envelope but not exactly centered, freeze the
