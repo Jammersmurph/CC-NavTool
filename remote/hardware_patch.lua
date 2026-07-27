@@ -51,13 +51,20 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       writeAt(4,y,tostring(i)..". "..control:upper(),colors.white,colors.gray)
       writeAt(17,y,assignmentText(item):sub(1,25),item and item.available~=false and colors.lime or colors.yellow,colors.gray)
     end
+    fill(3,12,18,1,colors.blue); writeAt(5,12,"ADD ASSIGNMENT",colors.white,colors.blue)
     writeAt(3,13,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("Click row or 1-6: assign  T:test  Q:back")
+    footer("Click row: edit  A:add  T:test  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
+    local forceAdd=false
     if event=="key" then
       if a==keys.q then return end
       if a>=keys.one and a<=keys.six then index=a-keys.one+1 end
+      if a==keys.a then
+        local chosen=tonumber(prompt("Control number to add","1"))
+        if chosen and chosen%1==0 and controls[chosen] then index=chosen; forceAdd=true
+        else message="Invalid control number" end
+      end
       if a==keys.t then
         local chosen=tonumber(prompt("Control number to test","1"))
         if chosen and chosen%1==0 and controls[chosen] then
@@ -67,17 +74,23 @@ local hardwarePageSource = [==[local function hardwarePage(data)
           message="Invalid control number"
         end
       end
+    elseif event=="mouse_click" and b>=3 and b<=20 and c==12 then
+      local chosen=tonumber(prompt("Control number to add","1"))
+      if chosen and chosen%1==0 and controls[chosen] then index=chosen; forceAdd=true
+      else message="Invalid control number" end
     elseif event=="mouse_click" and b>=3 and b<=47 and c>=5 and c<=10 then
       index=c-4
     end
     if index and controls[index] then
       local control=controls[index]
       local current=hardware.assignments and hardware.assignments[control] or {}
-      local add=false
+      local add=forceAdd==true
       local proceed=true
-      local mode=tostring(prompt("Assignment: replace or add","replace")):lower()
-      if mode=="add" then add=true
-      elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
+      if not add then
+        local mode=tostring(prompt("Assignment: replace or add","replace")):lower()
+        if mode=="add" then add=true
+        elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
+      end
       if proceed then
         local defaultKind=current.kind=="relay" and "relay" or current.targets and current.targets[1] and current.targets[1].kind=="relay" and "relay" or "local"
         local kind=tostring(prompt("Device: local or relay",defaultKind)):lower()
