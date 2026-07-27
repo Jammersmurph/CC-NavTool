@@ -408,7 +408,7 @@ local function headingFromPose(config, pose)
   local q = extractQuaternion(pose)
   if q then
     local orientation = type(config.orientation) == "table" and config.orientation or {}
-    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = -1 }
+    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = 1 }
     local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
     if rotated then return rotated, "pose-quaternion" end
   end
