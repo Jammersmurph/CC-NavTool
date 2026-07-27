@@ -331,9 +331,10 @@ local newProfiles = [[local function profilesPage()
       local found=chooseAircraft(channel)
       if found then
         local name=prompt("Aircraft profile",found.host)
+        local host=prompt("Aircraft host",found.host)
         local shared=prompt("Shared key","",true)
-        config.profiles[name]={channel=channel,host=found.host,sharedKey=shared,timeout=3,computerId=found.id}
-        config.activeProfile=name; saveConfig(); Storage.load(name); message="Imported "..found.host; return
+        config.profiles[name]={channel=channel,host=host,sharedKey=shared,timeout=3,computerId=found.id}
+        config.activeProfile=name; saveConfig(); Storage.load(name); message="Imported "..host; return
       end
     elseif key==keys.a then
       local name=prompt("Aircraft name")
