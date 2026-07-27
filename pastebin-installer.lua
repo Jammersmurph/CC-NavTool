@@ -116,6 +116,40 @@ local function writeFile(path, body)
   return true
 end
 
+local function readFile(path)
+  if not fs.exists(path) then return "" end
+  local file = fs.open(path, "r")
+  if not file then return "" end
+  local body = file.readAll()
+  file.close()
+  return body or ""
+end
+
+local function appendFile(path, body)
+  local file = fs.open(path, fs.exists(path) and "a" or "w")
+  if not file then return false, "Could not write " .. path end
+  file.write(body)
+  file.close()
+  return true
+end
+
+local function confirm(label)
+  write(label .. " (y/N): ")
+  local answer = read()
+  return tostring(answer or ""):lower():sub(1, 1) == "y"
+end
+
+local function maybeAddStartup(program)
+  local line = 'shell.run("bg", "shell.lua", "' .. program .. '")'
+  local startup = readFile("/startup.lua")
+  if startup:find(line, 1, true) then return end
+  if not confirm("Run " .. program .. " in the background at startup") then return end
+  local prefix = startup ~= "" and not startup:match("\n$") and "\n" or ""
+  local ok, err = appendFile("/startup.lua", prefix .. line .. "\n")
+  if ok then print("Added startup background launch for " .. program)
+  else printError(err) end
+end
+
 local function download(base, item, branch)
   local body, err = fetch(base .. item.remote .. "?cache=" .. cacheToken())
   if not body then return false, err end
@@ -146,6 +180,7 @@ local function installServer(choice)
   writeFile("/navtool.lua", 'local a={...}; if #a==0 then a[1]="server" end; shell.run("/navtool/runtime.lua", table.unpack(a))\n')
   writeFile("/flightcore.lua", 'shell.run("/navtool/flightcore.lua", ...)\n')
   print("NavTool Server installed. Run: navtool")
+  maybeAddStartup("navtool.lua")
   return true
 end
 
@@ -174,6 +209,7 @@ local function installRemote(choice)
   end
   writeFile("/navremote.lua", 'shell.run("/navremote/runtime.lua", ...)\n')
   print("NavRemote installed. Run: navremote")
+  maybeAddStartup("navremote.lua")
   return true
 end
 
