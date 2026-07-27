@@ -45,6 +45,12 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     message="Invalid control number"
     return nil
   end
+  local function editPrompt(label,default)
+    local value=prompt(label,default)
+    local lowered=tostring(value or ""):lower()
+    if lowered=="q" or lowered=="cancel" then message="Cancelled"; return nil,true end
+    return value,false
+  end
   local function deleteAssignment(hardware)
     local chosen=chooseControl("Control number to delete")
     if not chosen then return end
@@ -120,22 +126,29 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       local add=forceAdd==true
       local proceed=true
       if not add then
-        local mode=tostring(prompt("Assignment: replace or add","replace")):lower()
-        if mode=="add" then add=true
+        local mode, cancelled=editPrompt("Assignment: replace or add","replace")
+        mode=tostring(mode):lower()
+        if cancelled then proceed=false
+        elseif mode=="add" then add=true
         elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
       end
       if proceed then
         local defaultKind=current.kind=="relay" and "relay" or current.targets and current.targets[1] and current.targets[1].kind=="relay" and "relay" or "local"
-        local kind=tostring(prompt("Device: local or relay",defaultKind)):lower()
+        local kind, cancelled=editPrompt("Device: local or relay",defaultKind)
+        kind=tostring(kind):lower()
         local peripheralName=nil
-        if kind=="relay" then
+        if cancelled then
+          proceed=false
+        elseif kind=="relay" then
           if #(hardware.relays or {})==0 then message="No redstone relays are visible"; sleep(1)
           else
             clear(colors.black); header("Choose relay")
             for i,name in ipairs(hardware.relays) do writeAt(3,i+3,tostring(i)..". "..tostring(name),colors.white) end
-            local entered=prompt("Relay ID or list #","1")
+            local entered,cancelledRelay=editPrompt("Relay ID or list #","1")
             local chosen=tonumber(entered)
-            if chosen and chosen%1==0 then
+            if cancelledRelay then
+              proceed=false
+            elseif chosen and chosen%1==0 then
               local suffix="redstone_relay_"..tostring(chosen)
               for _,name in ipairs(hardware.relays) do
                 if tostring(name)==suffix then peripheralName=name; break end
@@ -158,19 +171,26 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         elseif kind~="local" then
           message="Device must be local or relay"
         end
-        if kind=="local" or peripheralName then
-          local side=prompt("Side top/bottom/left/right/front/back",current.side or "front")
-          local analogAnswer=prompt("Analog output? y/n",current.analog==false and "n" or "y")
-          local invertedAnswer=prompt("Inverted? y/n",current.inverted and "y" or "n")
-          local maximum=tonumber(prompt("Maximum strength",current.maximum or 15)) or 15
-          local okAssign,e=request("hardware-assign",{
-            control=control,kind=kind,peripheral=peripheralName,side=side,
-            analog=tostring(analogAnswer):lower():sub(1,1)~="n",
-            inverted=tostring(invertedAnswer):lower():sub(1,1)=="y",
-            maximum=maximum,
-            add=add,
-          })
-          message=okAssign and (control..(add and " assignment added" or " assigned")) or tostring(e)
+        if proceed and (kind=="local" or peripheralName) then
+          local side,cancelledSide=editPrompt("Side top/bottom/left/right/front/back",current.side or "front")
+          if cancelledSide then proceed=false end
+          local analogAnswer,cancelledAnalog=editPrompt("Analog output? y/n",current.analog==false and "n" or "y")
+          if cancelledAnalog then proceed=false end
+          local invertedAnswer,cancelledInverted=editPrompt("Inverted? y/n",current.inverted and "y" or "n")
+          if cancelledInverted then proceed=false end
+          local maximumAnswer,cancelledMaximum=editPrompt("Maximum strength",current.maximum or 15)
+          if cancelledMaximum then proceed=false end
+          local maximum=tonumber(maximumAnswer) or 15
+          if proceed then
+            local okAssign,e=request("hardware-assign",{
+              control=control,kind=kind,peripheral=peripheralName,side=side,
+              analog=tostring(analogAnswer):lower():sub(1,1)~="n",
+              inverted=tostring(invertedAnswer):lower():sub(1,1)=="y",
+              maximum=maximum,
+              add=add,
+            })
+            message=okAssign and (control..(add and " assignment added" or " assigned")) or tostring(e)
+          end
         end
       end
     end

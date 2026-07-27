@@ -918,7 +918,8 @@ local function server(config, debug)
         elseif request.command == "manual-control" then
           local control = tostring(request.control or "")
           local output = config.outputs and config.outputs[control]
-          if type(output) ~= "table" or not output.side then
+          local hasTargets = type(output) == "table" and type(output.targets) == "table" and #output.targets > 0
+          if type(output) ~= "table" or (not output.side and not hasTargets) then
             response = { ok = false, error = "unsupported control" }
           else
             local safety = type(config.safety) == "table" and config.safety or {}
