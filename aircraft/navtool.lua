@@ -1,4 +1,4 @@
-local VERSION = "0.3.0-dev"
+local VERSION = "0.4.0-alpha"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
