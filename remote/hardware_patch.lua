@@ -52,6 +52,27 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     if lowered=="q" or lowered=="cancel" then message="Cancelled"; return nil,true end
     return value,false
   end
+  local function chooseAssignmentMode(defaultAdd)
+    clear(colors.black); header("Edit assignment")
+    writeAt(3,4,"Choose how to change this flight output.",colors.cyan)
+    fill(3,7,12,3,colors.gray); writeAt(5,8,"REPLACE",colors.white,colors.gray)
+    fill(18,7,12,3,colors.blue); writeAt(23,8,"ADD",colors.white,colors.blue)
+    fill(33,7,12,3,colors.red); writeAt(36,8,"CANCEL",colors.white,colors.red)
+    writeAt(3,12,"R: replace  A: add  C/Q: cancel",colors.lightGray)
+    if defaultAdd then writeAt(3,14,"Add mode selected from the Add button.",colors.yellow) end
+    while true do
+      local event,a,b,c=os.pullEvent()
+      if event=="key" then
+        if a==keys.r then return false,true
+        elseif a==keys.a then return true,true
+        elseif a==keys.c or a==keys.q then message="Cancelled"; return false,false end
+      elseif event=="mouse_click" then
+        if b>=3 and b<=14 and c>=7 and c<=9 then return false,true
+        elseif b>=18 and b<=29 and c>=7 and c<=9 then return true,true
+        elseif b>=33 and b<=44 and c>=7 and c<=9 then message="Cancelled"; return false,false end
+      end
+    end
+  end
   local function deleteAssignment(hardware)
     local chosen=chooseControl("Control number to delete")
     if not chosen then return end
@@ -137,7 +158,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       local clicked=rowControl[c]
       local control=controls[clicked]
       local item=hardware.assignments and hardware.assignments[control]
-      if b>=17 and item and item.targets and #item.targets>1 then
+      if item and item.targets and #item.targets>1 then
         for _,name in ipairs(controls) do if name~=control then expanded[name]=nil end end
         expanded[control]=not expanded[control]
       else
@@ -149,13 +170,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       local current=hardware.assignments and hardware.assignments[control] or {}
       local add=forceAdd==true
       local proceed=true
-      if not add then
-        local mode, cancelled=editPrompt("Assignment: replace or add","replace")
-        mode=tostring(mode):lower()
-        if cancelled then proceed=false
-        elseif mode=="add" then add=true
-        elseif mode~="replace" then message="Assignment must be replace or add"; sleep(1); proceed=false end
-      end
+      add,proceed=chooseAssignmentMode(add)
       if proceed then
         local defaultKind=current.kind=="relay" and "relay" or current.targets and current.targets[1] and current.targets[1].kind=="relay" and "relay" or "local"
         local kind, cancelled=editPrompt("Device: local or relay",defaultKind)
