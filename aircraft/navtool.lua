@@ -874,6 +874,7 @@ local function server(config, debug)
   print("Channel: " .. channel)
   local manualUntil = {}
   local lastAutomation = 0
+  local pendingClearOutputs = false
   local automationOutputController = makeOutputController(config)
   local function clearExpiredManual()
     local now = os.clock()
@@ -911,7 +912,7 @@ local function server(config, debug)
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
             if mode ~= "navigate" then saveActiveSchedule(nil) end
             saveMode(mode)
-            if mode == "standby" then clearOutputs(config) end
+            if mode == "standby" then pendingClearOutputs = true end
             response = { ok = true, mode = mode }
           else
             response = { ok = false, error = "unsupported mode" }
@@ -1027,6 +1028,11 @@ local function server(config, debug)
         end
         end
         rednet.send(sender, response, channel)
+        if pendingClearOutputs then
+          pendingClearOutputs = false
+          automationOutputController(nil, true)
+          clearOutputs(config)
+        end
         if debug then print("Reply to " .. tostring(sender) .. ": " .. tostring(response.ok)) end
       end)
       if not ok then
