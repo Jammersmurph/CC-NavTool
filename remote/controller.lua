@@ -273,33 +273,36 @@ local function manualPage()
   local held = {}
   local holdDuration = 1.0
   local refreshInterval = 0.2
+  local running = true
   local function controlForKey(key)
     return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or (key==keys.leftShift or key==keys.rightShift) and "down"
   end
   local function sendHeld()
     for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=holdDuration}) end
   end
-  local timer=os.startTimer(refreshInterval)
-  while true do
-    local event,key=os.pullEvent()
-    if event=="key" then
-      if key==keys.escape then request("outputs-off"); return end
-      if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
-      local control=controlForKey(key)
-      if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=holdDuration}) end
-    elseif event=="key_up" then
-      local control=controlForKey(key)
-      if control then
-        if control~="down" then
-          held[control]=nil
-          request("manual-control",{control=control,strength=0,duration=0})
+  parallel.waitForAny(
+    function()
+      while running do
+        local event,key=os.pullEvent()
+        if event=="key" then
+          if key==keys.escape then running=false; request("outputs-off"); return end
+          if key==keys.x then running=false; request("outputs-off"); message="Outputs cleared"; return end
+          local control=controlForKey(key)
+          if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=holdDuration}) end
+        elseif event=="key_up" then
+          local control=controlForKey(key)
+          if control then held[control]=nil; request("manual-control",{control=control,strength=0,duration=0}) end
         end
       end
-    elseif event=="timer" and key==timer then
-      sendHeld()
-      timer=os.startTimer(refreshInterval)
+    end,
+    function()
+      while running do
+        sleep(refreshInterval)
+        sendHeld()
+      end
     end
-  end
+  )
+  request("outputs-off")
 end
 
 local function dashboard(data)
