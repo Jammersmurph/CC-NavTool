@@ -125,10 +125,12 @@ local function readFile(path)
   return body or ""
 end
 
-local function appendFile(path, body)
-  local file = fs.open(path, fs.exists(path) and "a" or "w")
+local function prependFile(path, body)
+  local existing = readFile(path)
+  local file = fs.open(path, "w")
   if not file then return false, "Could not write " .. path end
-  file.write(body)
+  local separator = existing ~= "" and not body:match("\n$") and "\n" or ""
+  file.write(body .. separator .. existing)
   file.close()
   return true
 end
@@ -144,8 +146,7 @@ local function maybeAddStartup(program)
   local startup = readFile("/startup.lua")
   if startup:find(line, 1, true) then return end
   if not confirm("Run " .. program .. " in the background at startup") then return end
-  local prefix = startup ~= "" and not startup:match("\n$") and "\n" or ""
-  local ok, err = appendFile("/startup.lua", prefix .. line .. "\n")
+  local ok, err = prependFile("/startup.lua", line .. "\n")
   if ok then print("Added startup background launch for " .. program)
   else printError(err) end
 end
