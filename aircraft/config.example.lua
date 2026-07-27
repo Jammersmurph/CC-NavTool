@@ -111,12 +111,5 @@ return {
     port = 9999,
     timeout = 12,
   },
-  outputs = {
-    forward = { side = "front", analog = true, inverted = false, maximum = 5 },
-    reverse = { side = "back", analog = true, inverted = false, maximum = 5 },
-    left = { side = "left", analog = true, inverted = false, maximum = 5 },
-    right = { side = "right", analog = true, inverted = false, maximum = 5 },
-    up = { side = "top", analog = true, inverted = false, maximum = 5 },
-    down = { side = "bottom", analog = true, inverted = false, maximum = 5 },
-  },
+  outputs = {},
 }

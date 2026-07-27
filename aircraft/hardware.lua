@@ -147,6 +147,13 @@ local function configuredTarget(request, encodedSide)
   }
 end
 
+local function clearTarget(output)
+  if type(output) == "table" and output.side then
+    pcall(redstone.setAnalogOutput, output.side, 0)
+    pcall(redstone.setOutput, output.side, false)
+  end
+end
+
 function Hardware.describe(config)
   local assignments = {}
   for _, control in ipairs(CONTROLS) do
@@ -204,6 +211,35 @@ function Hardware.assign(config, request)
   else
     config.outputs[control] = target
   end
+  return true, Hardware.describe(config).assignments[control]
+end
+
+function Hardware.unassign(config, request)
+  local control = tostring(request.control or "")
+  if not validControl(control) then return false, "invalid control" end
+  config.outputs = type(config.outputs) == "table" and config.outputs or {}
+  local output = config.outputs[control]
+  local targets = outputTargets(output)
+  if #targets == 0 then return false, "control is unassigned" end
+
+  local index = tonumber(request.index)
+  if request.all == true or not index then
+    for _, target in ipairs(targets) do clearTarget(target) end
+    config.outputs[control] = nil
+  else
+    index = math.floor(index)
+    if index < 1 or index > #targets then return false, "invalid binding number" end
+    clearTarget(targets[index])
+    table.remove(targets, index)
+    if #targets == 0 then
+      config.outputs[control] = nil
+    elseif #targets == 1 then
+      config.outputs[control] = targets[1]
+    else
+      config.outputs[control] = { targets = targets }
+    end
+  end
+
   return true, Hardware.describe(config).assignments[control]
 end
 
