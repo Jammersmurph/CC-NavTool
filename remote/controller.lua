@@ -268,14 +268,30 @@ local function manualPage()
   writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
   writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Left / right")
   writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
-  writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
-  footer("Movement keys  X: outputs off  Esc: back")
+  writeAt(3,8,"Hold multiple keys for combined manual output.",colors.yellow)
+  footer("Hold movement keys  X: outputs off  Esc: back")
+  local held = {}
+  local function controlForKey(key)
+    return key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
+  end
+  local function sendHeld()
+    for control in pairs(held) do request("manual-control",{control=control,strength=2,duration=0.25}) end
+  end
+  local timer=os.startTimer(0.1)
   while true do
-    local _,key=os.pullEvent("key")
-    if key==keys.escape then return end
-    local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
-    if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
-    if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+    local event,key=os.pullEvent()
+    if event=="key" then
+      if key==keys.escape then request("outputs-off"); return end
+      if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+      local control=controlForKey(key)
+      if control then held[control]=true; request("manual-control",{control=control,strength=2,duration=0.25}) end
+    elseif event=="key_up" then
+      local control=controlForKey(key)
+      if control then held[control]=nil; request("manual-control",{control=control,strength=0,duration=0}) end
+    elseif event=="timer" and key==timer then
+      sendHeld()
+      timer=os.startTimer(0.1)
+    end
   end
 end
 
