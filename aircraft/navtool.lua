@@ -885,6 +885,7 @@ local function server(config, debug)
       end
     end
   end
+  local function requestLoop()
   while true do
     clearExpiredManual()
     local sender, request = rednet.receive(channel, 0.05)
@@ -1042,7 +1043,13 @@ local function server(config, debug)
         printError("Request failed: " .. tostring(err))
         pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err) }, channel)
       end
-    elseif next(manualUntil) == nil and serverAutomationTick then
+    end
+  end
+  end
+
+  local function automationLoop()
+  while true do
+    if next(manualUntil) == nil and serverAutomationTick then
       local now = os.clock()
       local interval = math.max(0.25, tonumber(config.networkUpdateInterval) or tonumber(config.updateInterval) or 0.25)
       if now - lastAutomation >= interval then
@@ -1056,7 +1063,11 @@ local function server(config, debug)
         end
       end
     end
+    sleep(0.05)
   end
+  end
+
+  parallel.waitForAny(requestLoop, automationLoop)
 end
 
 local function status(config)
