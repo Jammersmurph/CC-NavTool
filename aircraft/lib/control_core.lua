@@ -213,10 +213,11 @@ function Control:outputs(state)
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
-    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.75
+    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.65
     if not alignment or alignment < minimumAlignment then
       thrust = 0
       self.speed:reset()
+      notes[#notes + 1] = string.format("forward held: align %.2f < %.2f", alignment or 0, minimumAlignment)
     end
     thrust = math.max(0, thrust)
     self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
