@@ -120,15 +120,9 @@ local function refresh(data,silent)
   return data.lastStatus,err
 end
 
-local function launcherColumns()
-  local w=term.getSize()
-  if w>=45 then return 4 end
-  return 3
-end
-
 local function iconPosition(index)
   local w=term.getSize()
-  local columns=launcherColumns()
+  local columns=w>=45 and 4 or 3
   local col=(index-1)%columns
   local row=math.floor((index-1)/columns)
   local spacing=11
@@ -404,11 +398,12 @@ while true do
     refreshTimer=os.startTimer(1)
   elseif event=="key" then
     local key=a
+    local columns=term.getSize()>=45 and 4 or 3
     if key==keys.q then clear(colors.black); return
     elseif key==keys.left and selected>1 then selected=selected-1
     elseif key==keys.right and selected<#icons then selected=selected+1
-    elseif key==keys.up and selected>launcherColumns() then selected=selected-launcherColumns()
-    elseif key==keys.down and selected+launcherColumns()<=#icons then selected=selected+launcherColumns()
+    elseif key==keys.up and selected>columns then selected=selected-columns
+    elseif key==keys.down and selected+columns<=#icons then selected=selected+columns
     elseif key==keys.r then local status,err=refresh(data); message=err or (status and "Telemetry refreshed" or "No telemetry")
     elseif key==keys.enter then
       local id=icons[selected].id
