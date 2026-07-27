@@ -261,6 +261,9 @@ local function makeOutputController(config)
   local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
   local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
   local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  if type(config.flightControl) == "table" and config.flightControl.enabled ~= false then
+    holdAfter, pulseReleaseGrace, holdReleaseGrace = 0, 0, 0
+  end
   local pulseAutomation = automation.pulseAutomationOutputs ~= false
   local outputPulsePeriod = math.max(0.05, tonumber(automation.outputPulsePeriod) or 0.4)
   local outputPulseWidth = math.max(0.05, math.min(outputPulsePeriod, tonumber(automation.outputPulseWidth) or 0.3))

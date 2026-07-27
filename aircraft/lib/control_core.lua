@@ -207,7 +207,12 @@ function Control:outputs(state)
     self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
-    self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+      self.altitude:reset()
+      commands.up, commands.down = 0, 0
+    else
+      self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
