@@ -147,8 +147,12 @@ local function controlTick()
         local yaw = headingPID:update(headingError or 0, dt)
         splitAxis(yaw, "left", "right", commands)
 
-        local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
-        splitAxis(vertical, "up", "down", commands)
+        if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+          altitudePID:reset()
+        else
+          local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
+          splitAxis(vertical, "up", "down", commands)
+        end
 
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
