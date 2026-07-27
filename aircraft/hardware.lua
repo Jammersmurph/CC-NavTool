@@ -118,20 +118,58 @@ function Hardware.installRedstoneProxy()
   redstone.getAnalogueOutput = redstone.getAnalogOutput
 end
 
+local function outputTargets(output)
+  if type(output) ~= "table" then return {} end
+  if type(output.targets) == "table" then return output.targets end
+  if output.side then return { output } end
+  return {}
+end
+
+local function describeTarget(output)
+  local target = output and Hardware.decodeSide(output.side) or nil
+  return {
+    kind = target and target.kind or "unassigned",
+    peripheral = target and target.peripheral or nil,
+    side = target and target.side or nil,
+    analog = not output or output.analog ~= false,
+    inverted = output and output.inverted == true or false,
+    maximum = output and tonumber(output.maximum) or nil,
+    available = target and (target.kind == "local" or peripheral.isPresent(target.peripheral)) or false,
+  }
+end
+
+local function configuredTarget(request, encodedSide)
+  return {
+    side = encodedSide,
+    analog = request.analog ~= false,
+    inverted = request.inverted == true,
+    maximum = math.max(0, math.min(15, tonumber(request.maximum) or 15)),
+  }
+end
+
 function Hardware.describe(config)
   local assignments = {}
   for _, control in ipairs(CONTROLS) do
     local output = type(config.outputs) == "table" and config.outputs[control] or nil
-    local target = output and Hardware.decodeSide(output.side) or nil
+    local targets = outputTargets(output)
+    local described = {}
+    local allAvailable = #targets > 0
+    for index, targetOutput in ipairs(targets) do
+      described[index] = describeTarget(targetOutput)
+      if described[index].available == false then allAvailable = false end
+    end
+    local first = described[1] or describeTarget(nil)
     assignments[control] = {
       control = control,
-      kind = target and target.kind or "unassigned",
-      peripheral = target and target.peripheral or nil,
-      side = target and target.side or nil,
-      analog = not output or output.analog ~= false,
-      inverted = output and output.inverted == true or false,
-      maximum = output and tonumber(output.maximum) or nil,
-      available = target and (target.kind == "local" or peripheral.isPresent(target.peripheral)) or false,
+      kind = #described > 1 and "multi" or first.kind,
+      peripheral = first.peripheral,
+      side = first.side,
+      analog = first.analog,
+      inverted = first.inverted,
+      maximum = first.maximum,
+      available = allAvailable,
+      count = #described,
+      targets = described,
     }
   end
   return { relays = Hardware.relays(), assignments = assignments, sides = SIDES, controls = CONTROLS }
@@ -145,35 +183,46 @@ function Hardware.assign(config, request)
   if not validSide(side) then return false, "invalid side" end
   config.outputs = type(config.outputs) == "table" and config.outputs or {}
   local output = config.outputs[control] or {}
+  local encodedSide
   if kind == "relay" then
     local name = tostring(request.peripheral or "")
     if name == "" or not peripheral.isPresent(name) or not hasType(name, "redstone_relay") then
       return false, "redstone relay unavailable"
     end
-    output.side = Hardware.encodeRelay(name, side)
+    encodedSide = Hardware.encodeRelay(name, side)
   elseif kind == "local" then
-    output.side = side
+    encodedSide = side
   else
     return false, "invalid device kind"
   end
-  output.analog = request.analog ~= false
-  output.inverted = request.inverted == true
-  output.maximum = math.max(0, math.min(15, tonumber(request.maximum) or tonumber(output.maximum) or 15))
-  config.outputs[control] = output
+  local target = configuredTarget(request, encodedSide)
+  if request.add == true then
+    local targets = {}
+    for _, existing in ipairs(outputTargets(output)) do targets[#targets + 1] = existing end
+    targets[#targets + 1] = target
+    config.outputs[control] = { targets = targets }
+  else
+    config.outputs[control] = target
+  end
   return true, Hardware.describe(config).assignments[control]
 end
 
 function Hardware.test(config, control, strength)
   local output = type(config.outputs) == "table" and config.outputs[tostring(control or "")] or nil
-  if not output or not output.side then return false, "control is unassigned" end
+  local targets = outputTargets(output)
+  if #targets == 0 then return false, "control is unassigned" end
   local value = math.max(0, math.min(15, tonumber(strength) or 5))
-  local ok, err
-  if output.analog == false then ok, err = pcall(redstone.setOutput, output.side, value > 0)
-  else ok, err = pcall(redstone.setAnalogOutput, output.side, value) end
-  if not ok then return false, err end
+  for _, target in ipairs(targets) do
+    local ok, err
+    if target.analog == false then ok, err = pcall(redstone.setOutput, target.side, value > 0)
+    else ok, err = pcall(redstone.setAnalogOutput, target.side, value) end
+    if not ok then return false, err end
+  end
   sleep(0.25)
-  if output.analog == false then pcall(redstone.setOutput, output.side, false)
-  else pcall(redstone.setAnalogOutput, output.side, 0) end
+  for _, target in ipairs(targets) do
+    if target.analog == false then pcall(redstone.setOutput, target.side, false)
+    else pcall(redstone.setAnalogOutput, target.side, 0) end
+  end
   return true
 end
 

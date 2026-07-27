@@ -8,6 +8,8 @@ local PID = dofile(ROOT .. "/lib/pid.lua")
 local Avionics = dofile(ROOT .. "/lib/avionics.lua")
 local Director = dofile(ROOT .. "/lib/flight_director.lua")
 local Recorder = dofile(ROOT .. "/lib/recorder.lua")
+local Hardware = fs.exists(ROOT .. "/hardware.lua") and dofile(ROOT .. "/hardware.lua") or nil
+if Hardware then Hardware.installRedstoneProxy() end
 
 local function load(path, fallback)
   if not fs.exists(path) then return fallback end
@@ -35,8 +37,7 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function writeOutput(config, name, normalized)
-  local output = config.outputs and config.outputs[name]
+local function writeOutputTarget(config, output, normalized)
   if type(output) ~= "table" or not output.side then return 0 end
   local maximum = outputMaximum(config, output)
   local value = math.floor(clamp(math.abs(normalized), 0, 1) * maximum + 0.5)
@@ -46,13 +47,27 @@ local function writeOutput(config, name, normalized)
   return value
 end
 
+local function writeOutput(config, name, normalized)
+  local output = config.outputs and config.outputs[name]
+  if type(output) ~= "table" then return 0 end
+  local targets = type(output.targets) == "table" and output.targets or { output }
+  local applied = 0
+  for _, target in ipairs(targets) do
+    applied = math.max(applied, writeOutputTarget(config, target, normalized))
+  end
+  return applied
+end
+
 local function clearOutputs(config)
   local cleared = {}
   for _, output in pairs(config.outputs or {}) do
-    if output.side and not cleared[output.side] then
-      pcall(redstone.setAnalogOutput, output.side, 0)
-      pcall(redstone.setOutput, output.side, false)
-      cleared[output.side] = true
+    local targets = type(output.targets) == "table" and output.targets or { output }
+    for _, target in ipairs(targets) do
+      if target.side and not cleared[target.side] then
+        pcall(redstone.setAnalogOutput, target.side, 0)
+        pcall(redstone.setOutput, target.side, false)
+        cleared[target.side] = true
+      end
     end
   end
 end

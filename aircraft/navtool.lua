@@ -187,10 +187,13 @@ end
 local function clearOutputs(config)
   local cleared = {}
   for _, output in pairs(config.outputs or {}) do
-    if output.side and not cleared[output.side] then
-      pcall(redstone.setAnalogOutput, output.side, 0)
-      pcall(redstone.setOutput, output.side, false)
-      cleared[output.side] = true
+    local targets = type(output.targets) == "table" and output.targets or { output }
+    for _, target in ipairs(targets) do
+      if target.side and not cleared[target.side] then
+        pcall(redstone.setAnalogOutput, target.side, 0)
+        pcall(redstone.setOutput, target.side, false)
+        cleared[target.side] = true
+      end
     end
   end
 end
@@ -200,8 +203,7 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function setOutput(config, control, strength)
-  local output = config.outputs and config.outputs[control]
+local function setOutputTarget(config, output, strength)
   if type(output) ~= "table" or not output.side then return false end
   local maximum = outputMaximum(config, output)
   local value = math.max(0, math.min(maximum, math.floor(tonumber(strength) or 0)))
@@ -212,6 +214,23 @@ local function setOutput(config, control, strength)
     redstone.setAnalogOutput(output.side, value)
   end
   return true, value
+end
+
+local function setOutput(config, control, strength)
+  local output = config.outputs and config.outputs[control]
+  if type(output) ~= "table" then return false end
+  local targets = type(output.targets) == "table" and output.targets or { output }
+  local applied, wrote = 0, false
+  for _, target in ipairs(targets) do
+    if type(target) == "table" and target.side then
+      local ok, value = setOutputTarget(config, target, strength)
+      if ok then
+        wrote = true
+        applied = math.max(applied, tonumber(value) or 0)
+      end
+    end
+  end
+  return wrote, applied
 end
 
 local function applyOutputs(config, requested)
