@@ -105,15 +105,6 @@ source = source:gsub(anchor, function()
 end, 1)
 
 source = source:gsub(
-  "local requested = automationOutputs%(config, state%)",
-  function()
-    replacements = replacements + 1
-    return "local requested = integratedAutomationOutputs(config, state, automationOutputs)"
-  end,
-  1
-)
-
-source = source:gsub(
   "local requested, notes = automationOutputs%(config, state%)",
   function()
     replacements = replacements + 1
@@ -201,9 +192,9 @@ local locationReplacements
 source, locationReplacements = LocationPatch.apply(source)
 replacements = replacements + locationReplacements
 
-if replacements ~= 16 then
+if replacements ~= 15 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 16 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected 15 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
