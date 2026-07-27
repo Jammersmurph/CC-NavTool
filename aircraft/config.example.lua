@@ -104,6 +104,7 @@ return {
     -- Mount the computer screen toward the ship's intended forward direction.
     forward = { x = 0, y = 0, z = 1 },
     up = { x = 0, y = 1, z = 0 },
+    yawOffset = 0,
   },
   network = {
     enabled = false,

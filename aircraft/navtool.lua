@@ -404,6 +404,19 @@ local function rotateByQuaternion(vector, q)
   }
 end
 
+local function rotateLocalYaw(vector, degrees)
+  vector = extractVector(vector)
+  degrees = tonumber(degrees) or 0
+  if not vector or degrees == 0 then return vector end
+  local radians = math.rad(degrees)
+  local sinValue, cosValue = math.sin(radians), math.cos(radians)
+  return {
+    x = vector.x * cosValue + vector.z * sinValue,
+    y = vector.y,
+    z = vector.z * cosValue - vector.x * sinValue,
+  }
+end
+
 local function headingFromPose(config, pose)
   if type(pose) ~= "table" then return nil end
   local direct = extractVector(pose.forward or pose.facing or pose.direction or (type(pose.rotation) == "table" and (pose.rotation.forward or pose.rotation.facing or pose.rotation.direction)))
@@ -413,6 +426,7 @@ local function headingFromPose(config, pose)
   if q then
     local orientation = type(config.orientation) == "table" and config.orientation or {}
     local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = 1 }
+    localForward = rotateLocalYaw(localForward, orientation.yawOffset)
     local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
     if rotated then return rotated, "pose-quaternion" end
   end
@@ -1171,6 +1185,21 @@ local function status(config)
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
 end
 
+local function setOrientationOffset(config, value)
+  local offset = tonumber(value)
+  if not offset then
+    print("Current orientation yawOffset: " .. tostring(config.orientation and config.orientation.yawOffset or 0))
+    print("Usage: navtool orientation <degrees>")
+    print("Try 90 or -90 if the craft thinks it is pointed 90 degrees off target.")
+    return
+  end
+  config.orientation = type(config.orientation) == "table" and config.orientation or {}
+  config.orientation.yawOffset = offset
+  saveConfig(config)
+  print("Orientation yawOffset set to " .. tostring(offset) .. " degrees.")
+  print("Restart navtool for the running flight controller to use it.")
+end
+
 local function diagnose(config)
   print("CC-NavTool telemetry diagnostics")
   print("CC:Sable sublevel available: " .. tostring(sublevelAvailable(config)))
@@ -1771,11 +1800,12 @@ if config._migrated then config._migrated = nil; saveConfig(config) end
 if command == "setup" or command == "onboarding" then onboarding(config, true); return end
 config = onboarding(config, false)
 if command == "status" then status(config)
+elseif command == "orientation" or command == "yaw-offset" then setOrientationOffset(config, args[2])
 elseif command == "diagnose" then diagnose(config)
 elseif command == "server" then server(config, args[2] == "debug")
 elseif command == "ui" or command == "run" then interface(config)
 elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 else
-  print("Usage: navtool ui|status|diagnose|server|automate|setup|update|uninstall|outputs-off|version")
+  print("Usage: navtool ui|status|diagnose|orientation|server|automate|setup|update|uninstall|outputs-off|version")
 end

@@ -173,7 +173,7 @@ function Control:outputs(state)
   self.lastClock = now
   local mode = tostring(state.mode or "standby")
   local commands = { forward = 0, reverse = 0, left = 0, right = 0, up = 0, down = 0 }
-  local notes = { "Avionics flight core" }
+  local notes = { "Sable flight core" }
 
   if mode == "standby" then
     self:reset()
