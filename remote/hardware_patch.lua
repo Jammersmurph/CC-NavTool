@@ -75,14 +75,26 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         else
           clear(colors.black); header("Choose relay")
           for i,name in ipairs(hardware.relays) do writeAt(3,i+3,tostring(i)..". "..tostring(name),colors.white) end
-          local chosen=tonumber(prompt("List number","1"))
-          if not chosen or chosen%1~=0 then
-            message="Relay number must be an integer"
-          elseif chosen<1 or chosen>#hardware.relays then
-            message="Invalid relay selection"
+          local entered=prompt("Relay ID or list #","1")
+          local chosen=tonumber(entered)
+          if chosen and chosen%1==0 then
+            local suffix="redstone_relay_"..tostring(chosen)
+            for _,name in ipairs(hardware.relays) do
+              if tostring(name)==suffix then peripheralName=name; break end
+            end
+            if not peripheralName and chosen>=1 and chosen<=#hardware.relays then peripheralName=hardware.relays[chosen] end
+            if peripheralName then
+              message="Selected "..tostring(entered).." -> "..tostring(peripheralName)
+            else
+              message="Invalid relay selection"
+            end
+          elseif entered and entered~="" then
+            for _,name in ipairs(hardware.relays) do
+              if tostring(name)==tostring(entered) then peripheralName=name; break end
+            end
+            message=peripheralName and ("Selected "..tostring(peripheralName)) or "Invalid relay selection"
           else
-            peripheralName=hardware.relays[chosen]
-            message="Selected "..tostring(chosen).." -> "..tostring(peripheralName)
+            message="Invalid relay selection"
           end
         end
       elseif kind~="local" then
