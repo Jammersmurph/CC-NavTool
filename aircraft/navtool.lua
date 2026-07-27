@@ -894,6 +894,7 @@ local function server(config, debug)
       local ok, err = pcall(function()
         local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
         local response = { ok = false, error = "unauthorized" }
+        local responseSent = false
         if valid then
         if request.command == "ping" then
           response = { ok = true, pong = true, id = os.getComputerID and os.getComputerID() or nil }
@@ -910,6 +911,8 @@ local function server(config, debug)
         elseif request.command == "set-mode" then
           local mode = tostring(request.mode or "standby")
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
+            rednet.send(sender, { ok = true, mode = mode }, channel)
+            responseSent = true
             if mode ~= "navigate" then saveActiveSchedule(nil) end
             saveMode(mode)
             if mode == "standby" then pendingClearOutputs = true end
@@ -1027,7 +1030,7 @@ local function server(config, debug)
           response = { ok = false, error = "unsupported command" }
         end
         end
-        rednet.send(sender, response, channel)
+        if not responseSent then rednet.send(sender, response, channel) end
         if pendingClearOutputs then
           pendingClearOutputs = false
           automationOutputController(nil, true)
