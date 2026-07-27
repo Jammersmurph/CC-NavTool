@@ -154,7 +154,7 @@ local function controlTick()
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.75) then
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.65) then
           thrust = 0
           speedPID:reset()
         end
