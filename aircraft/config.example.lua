@@ -34,11 +34,11 @@ return {
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:
-    -- While outside the horizontal transition radius, climb toward Y=300.
-    -- Horizontal travel is allowed anywhere inside the cruise band.
+    -- While outside the horizontal transition radius, enter the cruise band via Y=350.
+    -- Once inside the band, horizontal travel holds current altitude to avoid bobbing.
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
-    cruiseAltitude = 300,
+    cruiseAltitude = 350,
     cruiseAltitudeMinimum = 300,
     cruiseAltitudeMaximum = 500,
     verticalTransitionRadius = 3,
