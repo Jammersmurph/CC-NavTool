@@ -204,7 +204,12 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
-    self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
+    if guidance.finalCapture then
+      self.heading:reset()
+      commands.left, commands.right = 0, 0
+    else
+      self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
+    end
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
     if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
@@ -222,8 +227,19 @@ function Control:outputs(state)
       self.speed:reset()
       notes[#notes + 1] = string.format("forward held: align %.2f < %.2f", alignment or 0, minimumAlignment)
     end
-    thrust = math.max(0, thrust)
-    self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
+    if guidance.shouldBrake then
+      self.speed:reset()
+      local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12)))
+      self:setAxis(commands, -brake, "forward", "reverse", "speed", false)
+      notes[#notes + 1] = string.format("final brake %.2f in %.1f", guidance.approachSpeedAlong or 0, guidance.horizontalDistance or 0)
+    elseif guidance.finalCapture then
+      self.speed:reset()
+      commands.forward, commands.reverse = 0, 0
+      notes[#notes + 1] = string.format("final capture %.1f", guidance.horizontalDistance or 0)
+    else
+      thrust = math.max(0, thrust)
+      self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
+    end
     notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
     notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
     notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)

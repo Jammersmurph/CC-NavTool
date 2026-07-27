@@ -29,8 +29,9 @@ return {
     precisionRadius = 3,
     coordinateTolerance = 0.05,
     verticalTolerance = 0.05,
-    settleVelocity = 0.05,
+    settleVelocity = 0.5,
     arrivalRadius = 5,
+    brakeRadius = 25,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:
