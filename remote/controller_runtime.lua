@@ -74,21 +74,38 @@ local function chooseAircraft(channel)
 end
 
 local function chooseLocationRemote(title)
-  local remotes, lastErr = {}, nil
+  local remotes, lastErr, tracking = {}, nil, nil
   local deadline = os.clock() + 8
   repeat
     local response,err=request("location-list")
-    if response then remotes=response.remotes or {} else lastErr=err end
+    if response then remotes=response.remotes or {}; tracking=response.tracking else lastErr=err end
     clear(colors.black); header(title or "NavRemotes")
     writeAt(3,4,"Scanning for broadcasting NavRemotes...",colors.cyan)
-    writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
-    writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
+    if tracking then
+      writeAt(3,6,"Aircraft tracking: "..(tracking.enabled and "enabled" or "disabled"),tracking.enabled and colors.lime or colors.red)
+      writeAt(3,7,"Aircraft modem: "..tostring(tracking.modem or "none"),tracking.hasWireless and colors.lime or colors.red)
+      writeAt(3,8,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
+      writeAt(3,9,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+    else
+      writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
+      writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
+    end
     if #remotes>0 then break end
     sleep(0.5)
   until os.clock() >= deadline
   if lastErr and #remotes==0 then message=lastErr or "Location tracking unavailable"; return nil end
   clear(colors.black); header(title or "NavRemotes")
-  if #remotes==0 then writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow); writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray); waitBack(); return nil end
+  if #remotes==0 then
+    writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow)
+    if tracking then
+      writeAt(3,6,"Tracking: "..(tracking.enabled and "enabled" or "disabled").."  Modem: "..tostring(tracking.modem or "none"),colors.lightGray)
+      writeAt(3,7,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
+      writeAt(3,8,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+    else
+      writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray)
+    end
+    waitBack(); return nil
+  end
   local current=nowMs()
   for i,item in ipairs(remotes) do
     if i>12 then break end
