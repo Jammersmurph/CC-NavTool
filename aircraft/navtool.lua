@@ -1044,7 +1044,7 @@ local function server(config, debug)
       end
     elseif next(manualUntil) == nil and serverAutomationTick then
       local now = os.clock()
-      local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
+      local interval = math.max(0.25, tonumber(config.networkUpdateInterval) or tonumber(config.updateInterval) or 0.25)
       if now - lastAutomation >= interval then
         lastAutomation = now
         local mode = loadMode().mode or "standby"
