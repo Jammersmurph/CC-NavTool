@@ -146,7 +146,7 @@ local function controlTick()
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
         local yawRate = type(state.angularVelocity) == "table" and tonumber(state.angularVelocity.y or state.angularVelocity[2]) or nil
         local yaw = headingPID:update(headingError or 0, dt, yawRate)
-        splitAxis(yaw, "right", "left", commands)
+        splitAxis(yaw, "left", "right", commands)
 
         local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
         splitAxis(vertical, "up", "down", commands)

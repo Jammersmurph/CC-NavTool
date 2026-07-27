@@ -191,7 +191,8 @@ function Director.headingError(current, desired)
   current, desired = vector(current), vector(desired)
   if not current or not desired then return nil end
   local dot = clamp(current.x * desired.x + current.z * desired.z, -1, 1)
-  local cross = current.x * desired.z - current.z * desired.x
+  -- Positive error means yaw left, matching the aircraft output names.
+  local cross = current.z * desired.x - current.x * desired.z
   return math.atan2(cross, dot), dot, cross
 end
 
