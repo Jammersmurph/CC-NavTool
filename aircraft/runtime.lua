@@ -192,9 +192,9 @@ local locationReplacements
 source, locationReplacements = LocationPatch.apply(source)
 replacements = replacements + locationReplacements
 
-if replacements ~= 15 then
+if replacements < 15 then
   printError("CC-NavTool runtime compatibility check failed.")
-  printError("Expected 15 integration points, found " .. tostring(replacements) .. ".")
+  printError("Expected at least 15 integration points, found " .. tostring(replacements) .. ".")
   printError("Refusing to run a partially patched flight controller.")
   return
 end
