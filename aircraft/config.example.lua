@@ -35,9 +35,11 @@ return {
 
     -- Staged altitude navigation:
     -- While outside the horizontal transition radius, fly at Y=300.
+    -- Horizontal travel waits until the aircraft is within this tolerance of Y=300.
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
     cruiseAltitude = 300,
+    cruiseAltitudeTolerance = 0.5,
     verticalTransitionRadius = 3,
     followHorizontalRadius = 10,
     followHeightOffset = 10,
@@ -57,7 +59,7 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.25,
+    minimumThrustAlignment = 0.75,
     hoverVelocityGain = 0.18,
     headingPID = {
       kp = 1.6, ki = 0.02, kd = 0.45,
@@ -96,6 +98,9 @@ return {
     },
   },
   orientation = {
+    -- Local computer-space direction for the screen face. The Sable quaternion
+    -- rotates this into world space, so ship-forward is not fixed to world Z.
+    -- Mount the computer screen toward the ship's intended forward direction.
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
   },

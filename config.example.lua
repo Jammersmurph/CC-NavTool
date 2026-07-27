@@ -24,6 +24,9 @@ return {
     stopSpeed = 0.5,
   },
   orientation = {
+    -- Local computer-space direction for the screen face. The Sable quaternion
+    -- rotates this into world space, so ship-forward is not fixed to world Z.
+    -- Mount the computer screen toward the ship's intended forward direction.
     forward = { x = 0, y = 0, z = -1 },
     up = { x = 0, y = 1, z = 0 },
   },

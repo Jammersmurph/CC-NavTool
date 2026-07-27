@@ -680,8 +680,12 @@ local function promptSchedule()
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
     stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
   end
+  write("Dwell seconds at each stop: ")
+  local dwell = math.max(0, tonumber(read()) or 0)
+  write("Loop schedule? y/N: ")
+  local loop = tostring(read() or ""):lower():sub(1, 1) == "y"
   local schedules = loadSchedules()
-  schedules[name] = { name = name, stops = stops }
+  schedules[name] = { name = name, stops = stops, dwell = dwell, loop = loop }
   saveSchedules(schedules)
   print("Schedule saved.")
   sleep(1)
@@ -995,7 +999,12 @@ local function server(config, debug)
             end
             if normalized then
               local schedules = loadSchedules()
-              schedules[name] = { name = name, stops = normalized }
+              schedules[name] = {
+                name = name,
+                stops = normalized,
+                dwell = math.max(0, tonumber(schedule.dwell) or 0),
+                loop = schedule.loop == true,
+              }
               saveSchedules(schedules)
               response = { ok = true, schedule = schedules[name] }
             else
@@ -1253,11 +1262,71 @@ local function automationOutputs(config, state)
   return outputs, notes
 end
 
+local function nowSeconds()
+  return os.epoch and (os.epoch("utc") / 1000) or os.clock()
+end
+
+local function stopReached(config, state, stop)
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local position = extractVector(state and state.position)
+  if not position or type(stop) ~= "table" then return false end
+  local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
+  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
+  local dx = (tonumber(stop.x) or position.x) - position.x
+  local dy = (tonumber(stop.y) or position.y) - position.y
+  local dz = (tonumber(stop.z) or position.z) - position.z
+  return math.abs(dx) <= horizontalTolerance and math.abs(dy) <= verticalTolerance and math.abs(dz) <= horizontalTolerance
+end
+
+local function advanceScheduleStop(config, active, schedule, index, state)
+  local stop = schedule.stops[index]
+  if not stopReached(config, state, stop) then
+    if active.dwellUntil or active.dwellIndex then
+      active.dwellUntil = nil
+      active.dwellIndex = nil
+      saveActiveSchedule(active)
+    end
+    return false, "travel"
+  end
+
+  local dwell = math.max(0, tonumber(schedule.dwell) or 0)
+  local now = nowSeconds()
+  if dwell > 0 then
+    if active.dwellIndex ~= index or not active.dwellUntil then
+      active.dwellIndex = index
+      active.dwellUntil = now + dwell
+      saveActiveSchedule(active)
+      return false, "dwell"
+    end
+    if now < active.dwellUntil then return false, "dwell" end
+  end
+
+  active.dwellIndex = nil
+  active.dwellUntil = nil
+  if index >= #schedule.stops then
+    if schedule.loop == true then
+      active.index = 1
+      saveActiveSchedule(active)
+      saveTarget(schedule.stops[1])
+      saveMode("navigate")
+      return true, "loop"
+    end
+    saveActiveSchedule(nil)
+    saveMode("standby")
+    clearOutputs(config)
+    return true, "complete"
+  end
+
+  active.index = index + 1
+  saveActiveSchedule(active)
+  saveTarget(schedule.stops[active.index])
+  saveMode("navigate")
+  return true, "advance"
+end
+
 serverAutomationTick = function(config, outputController)
   local state = snapshot(config, { library = false, gps = false })
   local active = state.activeSchedule
-  local navigation = type(config.navigation) == "table" and config.navigation or {}
-  local arrivalRadius = tonumber(navigation.arrivalRadius) or 5
   if active then
     local schedules = loadSchedules()
     local schedule = schedules[active.name]
@@ -1274,19 +1343,9 @@ serverAutomationTick = function(config, outputController)
         saveMode("navigate")
         state = snapshot(config, { library = false, gps = false })
       end
-      if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
-        if index >= #schedule.stops then
-          saveActiveSchedule(nil)
-          saveMode("standby")
-          clearOutputs(config)
-          state = snapshot(config, { library = false, gps = false })
-        else
-          active.index = index + 1
-          saveActiveSchedule(active)
-          saveTarget(schedule.stops[active.index])
-          saveMode("navigate")
-          state = snapshot(config, { library = false, gps = false })
-        end
+      local advanced = advanceScheduleStop(config, active, schedule, index, state)
+      if advanced then
+        state = snapshot(config, { library = false, gps = false })
       end
     end
   end
@@ -1296,7 +1355,6 @@ end
 
 local function automate(config)
   local interval = math.max(0.05, tonumber(config.updateInterval) or 0.05)
-  local arrivalRadius = (config.navigation and config.navigation.arrivalRadius) or 5
   local outputController = makeOutputController(config)
   print("CC-NavTool automation")
   print("Redstone outputs are bounded by config safety limits.")
@@ -1332,20 +1390,14 @@ local function automate(config)
         print("Stop: " .. index .. "/" .. #schedule.stops .. " " .. tostring(stop.name or ""))
         print(string.format("Target: %.1f %.1f %.1f", tonumber(stop.x) or 0, tonumber(stop.y) or 0, tonumber(stop.z) or 0))
         if state.distanceToTarget then print(string.format("Distance: %.1f", state.distanceToTarget)) else print("Distance: unknown") end
-        if state.distanceToTarget and state.distanceToTarget <= arrivalRadius then
-          if index >= #schedule.stops then
-            print("Schedule complete. Returning to standby.")
-            saveActiveSchedule(nil)
-            saveMode("standby")
-            clearOutputs(config)
-          else
-            active.index = index + 1
-            saveActiveSchedule(active)
-            saveTarget(schedule.stops[active.index])
-            saveMode("navigate")
-            print("Advancing to next stop.")
-          end
-        end
+        local advanced, phase = advanceScheduleStop(config, active, schedule, index, state)
+        local dwellRemaining = active.dwellUntil and math.max(0, active.dwellUntil - nowSeconds()) or 0
+        if phase == "dwell" then print(string.format("Dwell: %.1fs remaining", dwellRemaining))
+        elseif phase == "advance" then print("Advancing to next stop.")
+        elseif phase == "loop" then print("Looping schedule.")
+        elseif phase == "complete" then print("Schedule complete. Returning to standby.")
+        else print("Schedule phase: travel") end
+        if advanced then state = snapshot(config, { library = false }) end
       end
     end
     print("")

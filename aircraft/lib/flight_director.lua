@@ -43,6 +43,7 @@ local function stagedTarget(state, target, config)
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
     or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
   local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 300
+  local cruiseAltitudeTolerance = math.max(0.001, tonumber(navigation.cruiseAltitudeTolerance) or tonumber(navigation.verticalTolerance) or 0.5)
 
   local horizontallyLocked = math.abs(dx) <= horizontalTolerance
     and math.abs(dz) <= horizontalTolerance
@@ -50,9 +51,12 @@ local function stagedTarget(state, target, config)
 
   local desiredY
   local phase
-  if horizontallyLocked then
+  if following and horizontalDistance <= transitionRadius then
     desiredY = final.y
-    phase = following and "follow-offset" or "final-altitude"
+    phase = "follow-offset"
+  elseif horizontallyLocked then
+    desiredY = final.y
+    phase = "final-altitude"
   elseif horizontalDistance > transitionRadius then
     desiredY = cruiseAltitude
     phase = "horizontal-cruise"
@@ -80,6 +84,8 @@ local function stagedTarget(state, target, config)
     settleVelocity = settleVelocity,
     transitionRadius = transitionRadius,
     cruiseAltitude = cruiseAltitude,
+    cruiseAltitudeTolerance = cruiseAltitudeTolerance,
+    cruiseAltitudeReady = math.abs(position.y - cruiseAltitude) <= cruiseAltitudeTolerance,
   }
 end
 
@@ -154,6 +160,7 @@ function Director.solve(state, target, config)
   local desiredSpeed = precisionSpeed + (cruiseSpeed - precisionSpeed) * speedRatio
   if horizontalDistance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
   if horizontalDistance <= (stage and stage.horizontalTolerance or 0.05) then desiredSpeed = 0 end
+  if stage and stage.phase == "horizontal-cruise" and not stage.cruiseAltitudeReady then desiredSpeed = 0 end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
@@ -175,6 +182,8 @@ function Director.solve(state, target, config)
     horizontalSpeed = stage and stage.horizontalSpeed or nil,
     horizontalTolerance = stage and stage.horizontalTolerance or nil,
     transitionRadius = stage and stage.transitionRadius or nil,
+    cruiseAltitude = stage and stage.cruiseAltitude or nil,
+    cruiseAltitudeReady = stage and stage.cruiseAltitudeReady or false,
   }
 end
 

@@ -15,7 +15,7 @@ local icons = {
   { id="schedules", label="Schedules", glyph={"#####","#.#.#","#####"} },
   { id="modes", label="Modes", glyph={"..#..",".###.","#####"} },
   { id="manual", label="Manual", glyph={".#.#.","#####",".#.#."} },
-  { id="profiles", label="Aircraft", glyph={"#...#",".###.","#...#"} },
+  { id="profiles", label="Profiles", glyph={"#...#",".###.","#...#"} },
   { id="logs", label="Logs", glyph={"####.","#....","#####"} },
   { id="settings", label="Settings", glyph={".#.#.","#####",".#.#."} },
 }
@@ -266,7 +266,7 @@ end
 local function manualPage()
   clear(colors.black); header("Manual control")
   writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
-  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Left / right")
+  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
   writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
   writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
   footer("Movement keys  X: outputs off  Esc: back")
@@ -298,7 +298,7 @@ end
 
 local function profilesPage()
   while true do
-    clear(colors.black); header("Aircraft")
+    clear(colors.black); header("Profiles")
     local names=Storage.names(config.profiles)
     for i,name in ipairs(names) do
       local marker=name==config.activeProfile and ">" or " "
@@ -345,7 +345,7 @@ local function settingsPage(data)
     writeAt(3,4,"1. Arrival radius",colors.cyan); writeAt(25,4,tostring(data.preferences.arrivalRadius or 5))
     writeAt(3,5,"2. Auto refresh",colors.cyan); writeAt(25,5,data.preferences.autoRefresh==false and "off" or "on")
     writeAt(3,6,"3. Manual strength",colors.cyan); writeAt(25,6,tostring(data.preferences.manualStrength or 2))
-    writeAt(3,8,"Connection values are edited in Aircraft.",colors.lightGray)
+    writeAt(3,8,"Connection values are edited in Profiles.",colors.lightGray)
     footer("1-3: edit  Esc: back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then saveData(data); return
@@ -365,7 +365,21 @@ local function advanceAutomation(data,status)
   local dy=(tonumber(status.position.y) or 0)-(tonumber(status.target.y) or 0)
   local dz=(tonumber(status.position.z) or 0)-(tonumber(status.target.z) or 0)
   local radius=tonumber((data.preferences or {}).arrivalRadius) or 5
-  if math.sqrt(dx*dx+dy*dy+dz*dz)>radius then return end
+  if math.sqrt(dx*dx+dy*dy+dz*dz)>radius then
+    if active.dwellIndex or active.dwellUntil then active.dwellIndex=nil; active.dwellUntil=nil; saveData(data) end
+    return
+  end
+  if kind=="Schedule" then
+    local dwell=math.max(0,tonumber(item.dwell) or 0)
+    if dwell>0 then
+      local now=os.epoch and (os.epoch("utc")/1000) or os.clock()
+      if active.dwellIndex~=(tonumber(active.index) or 1) or not active.dwellUntil then
+        active.dwellIndex=tonumber(active.index) or 1; active.dwellUntil=now+dwell; saveData(data); return
+      end
+      if now<active.dwellUntil then saveData(data); return end
+      active.dwellIndex=nil; active.dwellUntil=nil
+    end
+  end
   local nextIndex=(tonumber(active.index) or 1)+1
   if nextIndex>#item.stops then
     if kind=="Schedule" and item.loop then nextIndex=1 else data.activeRoute=nil; data.activeSchedule=nil; request("set-mode",{mode="standby"}); request("outputs-off"); message=kind.." complete"; Storage.log(data,"INFO",message); saveData(data); return end
