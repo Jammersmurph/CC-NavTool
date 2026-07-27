@@ -120,10 +120,20 @@ local function refresh(data,silent)
   return data.lastStatus,err
 end
 
+local function launcherColumns()
+  local w=term.getSize()
+  if w>=45 then return 4 end
+  return 3
+end
+
 local function iconPosition(index)
-  local col=(index-1)%3
-  local row=math.floor((index-1)/3)
-  return 16+col*12,3+row*5
+  local w=term.getSize()
+  local columns=launcherColumns()
+  local col=(index-1)%columns
+  local row=math.floor((index-1)/columns)
+  local spacing=11
+  local start=math.max(2,math.floor((w-(columns*8+(columns-1)*(spacing-8)))/2)+1)
+  return start+col*spacing,3+row*5
 end
 
 local function drawIcon(index,icon)
@@ -143,18 +153,9 @@ end
 local function desktop()
   clear(colors.green)
   header("", "[ " .. tostring(config.activeProfile or "none") .. " ]")
-  local categories={"HOME","NAVIGATION","AUTOPILOT","AIRCRAFT","SYSTEM"}
   local w,h=term.getSize()
-  fill(1,2,12,h-2,colors.gray)
-  for i,name in ipairs(categories) do
-    local active=(i==1)
-    fill(1,i+2,12,1,active and colors.lightGray or colors.gray)
-    writeAt(2,i+2,name,active and colors.black or colors.white,active and colors.lightGray or colors.gray)
-  end
-  writeAt(2,h-3,"PROGRAM",colors.lightGray,colors.gray)
-  writeAt(2,h-2,"CONTROLLER",colors.lightGray,colors.gray)
   for i,icon in ipairs(icons) do drawIcon(i,icon) end
-  if message~="" then writeAt(14,h-1,message:sub(1,math.max(1,w-15)),colors.yellow,colors.green) end
+  if message~="" then writeAt(2,h-1,message:sub(1,math.max(1,w-3)),colors.yellow,colors.green) end
   footer("Arrows: move  Enter: open  R: refresh  Q: quit")
 end
 
@@ -406,8 +407,8 @@ while true do
     if key==keys.q then clear(colors.black); return
     elseif key==keys.left and selected>1 then selected=selected-1
     elseif key==keys.right and selected<#icons then selected=selected+1
-    elseif key==keys.up and selected>3 then selected=selected-3
-    elseif key==keys.down and selected+3<=#icons then selected=selected+3
+    elseif key==keys.up and selected>launcherColumns() then selected=selected-launcherColumns()
+    elseif key==keys.down and selected+launcherColumns()<=#icons then selected=selected+launcherColumns()
     elseif key==keys.r then local status,err=refresh(data); message=err or (status and "Telemetry refreshed" or "No telemetry")
     elseif key==keys.enter then
       local id=icons[selected].id
