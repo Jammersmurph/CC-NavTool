@@ -1,4 +1,4 @@
--- CC-NavTool Avionics-native flight runtime
+-- CC-NavTool Sable-native flight runtime
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -131,7 +131,7 @@ local function controlTick()
   if mode == "standby" then
     headingPID:reset(); altitudePID:reset(); speedPID:reset()
   elseif not state.healthy then
-    fault = "required Create: Avionics/Sable telemetry unavailable"
+    fault = "required CC:Sable telemetry unavailable"
     if not config.safety or config.safety.disengageOnTelemetryLoss ~= false then
       save(MODE_PATH, { mode = "standby" })
       mode = "standby"
@@ -202,7 +202,7 @@ local function controlTick()
 
   term.clear()
   term.setCursorPos(1, 1)
-  print("CC-NavTool Flight Core")
+  print("CC-NavTool Sable Flight Core")
   print("Mode: " .. mode)
   print("Telemetry: " .. (state.healthy and "ONLINE" or "DEGRADED"))
   print("Source: " .. tostring(state.source))
@@ -237,7 +237,7 @@ local function loop()
   end
 end
 
-print("Starting Avionics-native flight core...")
+print("Starting Sable-native flight core...")
 local ok, err = pcall(parallel.waitForAny, loop, controls)
 if not ok then printError(err) end
 clearOutputs(config)
