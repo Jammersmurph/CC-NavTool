@@ -16,7 +16,7 @@ return {
   monitorPeripheral = nil,
 
   safety = {
-    maximumOutput = 5,
+    maximumOutput = 15,
     maximumRemotePulse = 2.0,
     disengageOnTelemetryLoss = true,
     clearOutputsOnExit = true,

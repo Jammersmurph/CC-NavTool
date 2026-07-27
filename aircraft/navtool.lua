@@ -22,6 +22,10 @@ local function loadConfig()
     config.flightControl.minimumThrustAlignment = 0.65
     config._migrated = true
   end
+  if type(config.safety) == "table" and tonumber(config.safety.maximumOutput) == 5 then
+    config.safety.maximumOutput = 15
+    config._migrated = true
+  end
   return config
 end
 
@@ -1624,7 +1628,8 @@ renderMonitorStatus = function(config, state, requested, applied, notes)
     line(monitor, 2, y, "Schedule: ", tostring(state.activeSchedule.name) .. " #" .. tostring(state.activeSchedule.index)); y = y + 1
   end
   y = y + 1
-  line(monitor, 2, y, "Outputs: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  line(monitor, 2, y, "Applied: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  line(monitor, 2, y, "Request: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", requested.forward or 0, requested.reverse or 0, requested.left or 0, requested.right or 0, requested.up or 0, requested.down or 0)); y = y + 1
   for _, note in ipairs(notes) do
     if y > height then break end
     writeAt(monitor, 2, y, tostring(note):sub(1, math.max(1, width - 2)))
