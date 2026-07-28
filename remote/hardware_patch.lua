@@ -118,6 +118,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local hardware=response and response.hardware or {assignments={},relays={}}
     clear(colors.black); header("Hardware",err and "[ OFFLINE ]" or "[ CONFIG ]")
     writeAt(3,3,"Flight output assignments",colors.cyan)
+    if message and message ~= "" then writeAt(3,4,tostring(message):sub(1,45),colors.yellow) end
     local rowControl={}
     local y=5
     for i,control in ipairs(controls) do
@@ -162,6 +163,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       end
       if a==keys.v then
         local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+        if okMode and okMode.hardware then hardware=okMode.hardware end
         message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
       end
       if a==keys.m then
@@ -183,6 +185,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       deleteAssignment(hardware)
     elseif event=="mouse_click" and b>=3 and b<=26 and c==buttonY+2 then
       local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+      if okMode and okMode.hardware then hardware=okMode.hardware end
       message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
     elseif event=="mouse_click" and b>=3 and b<=47 and rowControl[c] then
       local clicked=rowControl[c]
