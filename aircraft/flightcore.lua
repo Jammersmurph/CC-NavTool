@@ -162,6 +162,7 @@ local function controlTick()
     guidance, fault = Director.solve(state, target, config)
     if guidance then
       if guidance.arrived then
+        if type(config.hardware) == "table" and config.hardware.airshipMode == true then commands.__airshipArrived = true end
         save(MODE_PATH, { mode = "hover" })
         mode = "hover"
       else
