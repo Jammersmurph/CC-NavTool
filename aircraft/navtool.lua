@@ -44,8 +44,8 @@ local function loadConfig()
     config.network.protocol = nil
     config._migrated = true
   end
-  if type(config.flightControl) == "table" and (tonumber(config.flightControl.minimumThrustAlignment) or 0) < 0.94 then
-    config.flightControl.minimumThrustAlignment = 0.94
+  if type(config.flightControl) == "table" and (tonumber(config.flightControl.minimumThrustAlignment) or 0) < 0.985 then
+    config.flightControl.minimumThrustAlignment = 0.985
     config._migrated = true
   end
   if type(config.safety) == "table" and tonumber(config.safety.maximumOutput) == 5 then

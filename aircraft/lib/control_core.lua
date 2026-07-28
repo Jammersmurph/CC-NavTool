@@ -256,7 +256,7 @@ function Control:outputs(state)
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
     if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
-    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.94
+    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.985
     if not alignment or alignment < minimumAlignment then
       self.speed:reset()
       if currentHorizontalSpeed > 0.25 then
