@@ -282,7 +282,7 @@ function Control:outputs(state)
       thrust = math.max(0, thrust)
       self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
     end
-    if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+    if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius then
       local limit = tonumber(guidance.finalOutputMaximum) or 2
       commands.forward = math.min(commands.forward or 0, limit)
       commands.reverse = math.min(commands.reverse or 0, limit)

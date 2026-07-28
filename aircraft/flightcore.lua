@@ -227,7 +227,7 @@ local function controlTick()
           thrust = math.max(0, thrust)
           splitAxis(thrust, "forward", "reverse", commands)
         end
-        if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+        if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalOutputMaximum) or 2))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
           local normalizedLimit = limit / maximum
