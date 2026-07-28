@@ -179,6 +179,13 @@ local function controlTick()
           local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
           splitAxis(vertical, "up", "down", commands)
         end
+        if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 10) then
+          local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
+          local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+          local normalizedLimit = limit / maximum
+          commands.up = math.min(commands.up or 0, normalizedLimit)
+          commands.down = math.min(commands.down or 0, normalizedLimit)
+        end
 
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
