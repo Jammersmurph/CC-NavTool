@@ -1317,7 +1317,7 @@ local function server(config, debug)
               if response.ok == nil then
                 saveActiveSchedule(active)
                 saveTarget(schedule.stops[active.index])
-                saveMode("navigate")
+                if active.paused == true then saveMode("standby") else saveMode("navigate") end
                 response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
               end
             else
@@ -1327,12 +1327,19 @@ local function server(config, debug)
             response = { ok = false, error = "no active schedule" }
           end
         elseif request.command == "pause-schedule" then
+          local active = loadActiveSchedule()
+          if active then
+            active.paused = true
+            saveActiveSchedule(active)
+          end
           saveMode("standby")
           pendingClearOutputs = true
-          response = { ok = true }
+          response = active and { ok = true } or { ok = false, error = "no active schedule" }
         elseif request.command == "resume-schedule" then
           local active = loadActiveSchedule()
           if active then
+            active.paused = nil
+            saveActiveSchedule(active)
             saveMode("navigate")
             response = { ok = true }
           else
@@ -1601,12 +1608,16 @@ local function stopReached(config, state, stop)
   local navigation = type(config.navigation) == "table" and config.navigation or {}
   local position = extractVector(state and state.position)
   if not position or type(stop) ~= "table" then return false end
-  local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
-  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
+  local horizontalTolerance = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
+  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or tonumber(navigation.coordinateTolerance) or 0.05)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true then
+    horizontalTolerance = math.max(horizontalTolerance, tonumber(navigation.airshipArrivalRadius) or 6)
+    verticalTolerance = math.max(verticalTolerance, tonumber(navigation.airshipVerticalTolerance) or 8)
+  end
   local dx = (tonumber(stop.x) or position.x) - position.x
   local dy = (tonumber(stop.y) or position.y) - position.y
   local dz = (tonumber(stop.z) or position.z) - position.z
-  return math.abs(dx) <= horizontalTolerance and math.abs(dy) <= verticalTolerance and math.abs(dz) <= horizontalTolerance
+  return math.sqrt(dx * dx + dz * dz) <= horizontalTolerance and math.abs(dy) <= verticalTolerance
 end
 
 local function advanceScheduleStop(config, active, schedule, index, state)
@@ -1659,6 +1670,13 @@ serverAutomationTick = function(config, outputController)
   local state = snapshot(config, { library = false, gps = false })
   local active = state.activeSchedule
   if active then
+    if active.paused == true then
+      state.mode = "standby"
+      local requested, notes = automationOutputs(config, state)
+      local applied = outputController and outputController(requested, true) or applyOutputs(config, requested)
+      notes[#notes + 1] = "schedule paused"
+      return state, requested, applied, notes
+    end
     local schedules = loadSchedules()
     local schedule = schedules[active.name]
     if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then

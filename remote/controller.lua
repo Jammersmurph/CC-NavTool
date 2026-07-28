@@ -289,6 +289,7 @@ local function schedulePage(data)
       writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
       writeAt(2,y,tostring(active.name or "?"),colors.lime)
       writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
+      if active.paused then writeAt(35,y,"PAUSED",colors.yellow) end
       if active.dwellUntil then
         local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
         writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
@@ -328,7 +329,7 @@ local function schedulePage(data)
     end
     local help=""
     if active then
-      help="S:skip P:pause X:stop "
+      help=active.paused and "S:skip P:resume X:stop " or "S:skip P:pause X:stop "
     end
     help=help.."R:run A:add D:delete Esc:back"
     footer(help)
@@ -344,7 +345,8 @@ local function schedulePage(data)
     elseif key==keys.s and active then
       local r,e=request("skip-stop"); message=r and "Stop skipped" or e
     elseif key==keys.p and active then
-      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e
+      local r,e=request(active.paused and "resume-schedule" or "pause-schedule")
+      message=r and (active.paused and "Schedule resumed" or "Schedule paused") or e
     elseif key==keys.x and active then
       local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
     elseif key==keys.a then
