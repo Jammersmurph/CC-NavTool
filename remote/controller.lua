@@ -55,6 +55,129 @@ end
 
 local function profile() return config.profiles[config.activeProfile] end
 
+local LOCAL_NAVTOOL_ROOT = "/navtool"
+
+local function localNavToolAvailable()
+  return fs.exists(LOCAL_NAVTOOL_ROOT .. "/navtool.lua")
+end
+
+if localNavToolAvailable() then
+  for index = #icons, 1, -1 do
+    if icons[index].id == "profiles" then table.remove(icons, index) end
+  end
+  config.activeProfile = "local-navtool"
+end
+
+local function localLoad(path, fallback)
+  if not fs.exists(path) then return fallback end
+  local file = fs.open(path, "r")
+  if not file then return fallback end
+  local body = file.readAll()
+  file.close()
+  local ok, value = pcall(textutils.unserialize, body)
+  if ok and value ~= nil then return value end
+  return fallback
+end
+
+local function localSave(path, value)
+  local file = fs.open(path, "w")
+  if not file then return false end
+  file.write(textutils.serialize(value))
+  file.close()
+  return true
+end
+
+local function localDelete(path)
+  if fs.exists(path) then fs.delete(path) end
+end
+
+local function localStatus()
+  local root = LOCAL_NAVTOOL_ROOT
+  local status = localLoad(root .. "/status.db", {}) or {}
+  status.localNavTool = true
+  status.mode = (localLoad(root .. "/mode.db", { mode = "standby" }) or {}).mode or "standby"
+  status.target = localLoad(root .. "/target.db", nil)
+  status.schedules = localLoad(root .. "/schedules.db", {}) or {}
+  status.scheduleNames = Storage.names(status.schedules)
+  status.activeSchedule = localLoad(root .. "/active_schedule.db", nil)
+  return status
+end
+
+local function localRequest(command, extra)
+  local root = LOCAL_NAVTOOL_ROOT
+  extra = extra or {}
+  if command == "status" or command == "live-status" then
+    return { ok = true, data = localStatus() }
+  elseif command == "set-target" and type(extra.target) == "table" then
+    localSave(root .. "/target.db", extra.target)
+    return { ok = true, target = extra.target }
+  elseif command == "clear-target" then
+    localDelete(root .. "/target.db")
+    return { ok = true }
+  elseif command == "set-mode" then
+    local mode = tostring(extra.mode or "standby")
+    if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
+      if mode ~= "navigate" then localDelete(root .. "/active_schedule.db") end
+      localSave(root .. "/mode.db", { mode = mode })
+      return { ok = true, mode = mode }
+    end
+    return nil, "unsupported mode"
+  elseif command == "schedule-list" then
+    local schedules = localLoad(root .. "/schedules.db", {}) or {}
+    return { ok = true, schedules = schedules, names = Storage.names(schedules), active = localLoad(root .. "/active_schedule.db", nil) }
+  elseif command == "save-schedule" and type(extra.schedule) == "table" then
+    local schedules = localLoad(root .. "/schedules.db", {}) or {}
+    schedules[tostring(extra.schedule.name or "")] = extra.schedule
+    localSave(root .. "/schedules.db", schedules)
+    return { ok = true, schedule = extra.schedule }
+  elseif command == "delete-schedule" then
+    local schedules = localLoad(root .. "/schedules.db", {}) or {}
+    schedules[tostring(extra.name or "")] = nil
+    localSave(root .. "/schedules.db", schedules)
+    local active = localLoad(root .. "/active_schedule.db", nil)
+    if active and active.name == extra.name then localDelete(root .. "/active_schedule.db"); localSave(root .. "/mode.db", { mode = "standby" }) end
+    return { ok = true }
+  elseif command == "run-schedule" then
+    local schedules = localLoad(root .. "/schedules.db", {}) or {}
+    local schedule = schedules[tostring(extra.name or "")]
+    if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then return nil, "schedule not found or empty" end
+    local active = { name = schedule.name or extra.name, index = 1, startedAt = os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000) }
+    localSave(root .. "/active_schedule.db", active)
+    localSave(root .. "/target.db", schedule.stops[1])
+    localSave(root .. "/mode.db", { mode = "navigate" })
+    return { ok = true, target = schedule.stops[1] }
+  elseif command == "stop-schedule" or command == "stop" or command == "outputs-off" then
+    localDelete(root .. "/active_schedule.db")
+    localSave(root .. "/mode.db", { mode = "standby" })
+    return { ok = true }
+  elseif command == "skip-stop" then
+    local active = localLoad(root .. "/active_schedule.db", nil)
+    local schedules = localLoad(root .. "/schedules.db", {}) or {}
+    local schedule = active and schedules[active.name]
+    if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then return nil, "no active schedule" end
+    active.dwellIndex, active.dwellUntil = nil, nil
+    if (tonumber(active.index) or 1) >= #schedule.stops then
+      if schedule.loop then active.index = 1 else localDelete(root .. "/active_schedule.db"); localSave(root .. "/mode.db", { mode = "standby" }); return { ok = true, status = "complete" } end
+    else
+      active.index = (tonumber(active.index) or 1) + 1
+    end
+    localSave(root .. "/active_schedule.db", active)
+    localSave(root .. "/target.db", schedule.stops[active.index])
+    localSave(root .. "/mode.db", { mode = "navigate" })
+    return { ok = true, stop = active.index, target = schedule.stops[active.index] }
+  elseif command == "pause-schedule" then
+    localSave(root .. "/mode.db", { mode = "standby" })
+    return { ok = true }
+  elseif command == "resume-schedule" then
+    if not localLoad(root .. "/active_schedule.db", nil) then return nil, "no active schedule" end
+    localSave(root .. "/mode.db", { mode = "navigate" })
+    return { ok = true }
+  elseif command == "manual-control" then
+    return nil, "manual control needs a separate NavRemote computer"
+  end
+  return nil, "unsupported local command"
+end
+
 local function openModem()
   for _, side in ipairs(peripheral.getNames()) do
     if peripheral.getType(side) == "modem" then
@@ -66,6 +189,7 @@ local function openModem()
 end
 
 local function request(command, extra)
+  if localNavToolAvailable() then return localRequest(command, extra) end
   local connection = profile()
   if not connection then return nil, "No aircraft selected" end
   local channel = connection.channel or "cc-navtool"
@@ -88,8 +212,8 @@ local function request(command, extra)
   return response
 end
 
-local function localData() return Storage.load(config.activeProfile or "default") end
-local function saveData(data) return Storage.save(config.activeProfile or "default", data) end
+local function localData() return Storage.load(localNavToolAvailable() and "local-navtool" or config.activeProfile or "default") end
+local function saveData(data) return Storage.save(localNavToolAvailable() and "local-navtool" or config.activeProfile or "default", data) end
 
 local function clear(bg)
   term.setBackgroundColor(bg or colors.green)
@@ -258,6 +382,7 @@ local function createPath(data,kind)
   if kind=="Schedule" then item.loop=confirm("Loop schedule"); item.dwell=tonumber(prompt("Dwell seconds","0")) or 0 end
   local map=kind=="Route" and data.routes or data.schedules
   map[name]=item; saveData(data)
+  if kind=="Schedule" then request("save-schedule",{schedule=item}) end
 end
 
 local function runPath(data,kind,name)
@@ -275,7 +400,7 @@ local function schedulePage(data)
     local response,err=request("status")
     local status=response and response.data or {}
     local active=status.activeSchedule
-    local schedules=data.schedules or {}
+    local schedules=(status and status.schedules) or data.schedules or {}
     local names=Storage.names(schedules)
     local w,h=term.getSize()
     clear(colors.black); header("Schedules")
@@ -286,7 +411,8 @@ local function schedulePage(data)
       writeAt(2,y,tostring(active.name or "?"),colors.lime)
       writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
       if active.dwellUntil then
-        local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
+        local now=(os.epoch and os.epoch("utc") / 1000) or os.time()
+        local remaining=math.max(0,math.floor(active.dwellUntil-now))
         writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
       end
       y=y+1
