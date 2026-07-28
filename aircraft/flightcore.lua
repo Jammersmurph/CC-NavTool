@@ -197,6 +197,13 @@ local function controlTick()
           thrust = math.max(0, thrust)
           splitAxis(thrust, "forward", "reverse", commands)
         end
+        if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+          local limit = math.max(1, math.min(15, tonumber(guidance.finalOutputMaximum) or 2))
+          local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+          local normalizedLimit = limit / maximum
+          commands.forward = math.min(commands.forward or 0, normalizedLimit)
+          commands.reverse = math.min(commands.reverse or 0, normalizedLimit)
+        end
       end
     end
   elseif mode == "hover" then

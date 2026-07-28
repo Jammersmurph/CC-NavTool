@@ -240,6 +240,12 @@ function Control:outputs(state)
       thrust = math.max(0, thrust)
       self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
     end
+    if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+      local limit = tonumber(guidance.finalOutputMaximum) or 2
+      commands.forward = math.min(commands.forward or 0, limit)
+      commands.reverse = math.min(commands.reverse or 0, limit)
+      notes[#notes + 1] = "final f/rev cap " .. tostring(limit)
+    end
     notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
     notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
     notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)
