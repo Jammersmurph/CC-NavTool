@@ -1257,7 +1257,7 @@ local function server(config, debug)
           saveMode("standby")
           clearOutputs(config)
           response = { ok = true }
-        elseif request.command == "hardware-mode" then
+        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
           config.hardware = type(config.hardware) == "table" and config.hardware or {}
           if tostring(request.mode or "") == "airship" then
             config.hardware.airshipMode = request.enabled == true
