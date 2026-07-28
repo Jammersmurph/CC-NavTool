@@ -37,7 +37,7 @@ return {
     settleVelocity = 0.5,
     arrivalRadius = 1,
     brakeRadius = 75,
-    finalOutputRadius = 20,
+    finalOutputRadius = 10,
     headingTolerance = 4,
     airshipArrivalRadius = 6,
     airshipVerticalTolerance = 8,
