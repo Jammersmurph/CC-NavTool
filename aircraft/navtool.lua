@@ -223,17 +223,61 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function setOutputTarget(config, output, strength)
+local function outputValue(config, output, strength)
   if type(output) ~= "table" or not output.side then return false end
   local maximum = outputMaximum(config, output)
   local value = math.max(0, math.min(maximum, math.floor(tonumber(strength) or 0)))
   if output.inverted and value > 0 then value = math.max(1, maximum - value + 1) end
+  return true, value
+end
+
+local function writeOutputTarget(output, value)
   if output.analog == false then
     redstone.setOutput(output.side, value > 0)
   else
     redstone.setAnalogOutput(output.side, value)
   end
+end
+
+local function setOutputTarget(config, output, strength)
+  local ok, value = outputValue(config, output, strength)
+  if not ok then return false end
+  writeOutputTarget(output, value)
   return true, value
+end
+
+local function outputTargets(output)
+  if type(output) ~= "table" then return {} end
+  if type(output.targets) == "table" then return output.targets end
+  if output.side then return { output } end
+  return {}
+end
+
+local function applyOutputValues(config, values)
+  local winners = {}
+  local applied = {}
+  for control, output in pairs(config.outputs or {}) do
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side then
+        local ok, value = outputValue(config, target, values and values[control] or 0)
+        if ok then
+          local current = winners[target.side]
+          if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+        end
+      end
+    end
+  end
+  for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
+  for control, output in pairs(config.outputs or {}) do
+    local value = 0
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side and winners[target.side] then
+        value = math.max(value, winners[target.side].value)
+      end
+    end
+    applied[control] = value
+  end
+  return applied
 end
 
 local function setOutput(config, control, strength)
@@ -254,13 +298,8 @@ local function setOutput(config, control, strength)
 end
 
 local function applyOutputs(config, requested)
-  local applied = {}
-  for control in pairs(config.outputs or {}) do
-    local ok, _, value = pcall(setOutput, config, control, requested[control] or 0)
-    if not ok then value = 0 end
-    applied[control] = value or 0
-  end
-  return applied
+  local ok, applied = pcall(applyOutputValues, config, requested or {})
+  return ok and applied or {}
 end
 
 local function makeOutputController(config)
@@ -304,11 +343,9 @@ local function makeOutputController(config)
           active[control] = nil
         end
       end
-      local ok, _, appliedValue = pcall(setOutput, config, control, value)
-      if not ok then appliedValue = 0 end
-      applied[control] = appliedValue or 0
+      applied[control] = value or 0
     end
-    return applied
+    return applyOutputs(config, applied)
   end
 end
 

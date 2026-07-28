@@ -37,23 +37,45 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function writeOutputTarget(config, output, normalized)
+local function outputTargets(output)
+  if type(output) ~= "table" then return {} end
+  if type(output.targets) == "table" then return output.targets end
+  if output.side then return { output } end
+  return {}
+end
+
+local function outputValue(config, output, normalized)
   if type(output) ~= "table" or not output.side then return 0 end
   local maximum = outputMaximum(config, output)
   local value = math.floor(clamp(math.abs(normalized), 0, 1) * maximum + 0.5)
   if output.inverted and value > 0 then value = math.max(1, maximum - value + 1) end
-  if output.analog == false then redstone.setOutput(output.side, value > 0)
-  else redstone.setAnalogOutput(output.side, value) end
   return value
 end
 
-local function writeOutput(config, name, normalized)
-  local output = config.outputs and config.outputs[name]
-  if type(output) ~= "table" then return 0 end
-  local targets = type(output.targets) == "table" and output.targets or { output }
-  local applied = 0
-  for _, target in ipairs(targets) do
-    applied = math.max(applied, writeOutputTarget(config, target, normalized))
+local function writeOutputTarget(output, value)
+  if output.analog == false then redstone.setOutput(output.side, value > 0)
+  else redstone.setAnalogOutput(output.side, value) end
+end
+
+local function writeOutputs(config, commands)
+  local winners = {}
+  local applied = {}
+  for name, output in pairs(config.outputs or {}) do
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side then
+        local value = outputValue(config, target, commands[name] or 0)
+        local current = winners[target.side]
+        if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+      end
+    end
+  end
+  for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
+  for name, output in pairs(config.outputs or {}) do
+    local value = 0
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side and winners[target.side] then value = math.max(value, winners[target.side].value) end
+    end
+    applied[name] = value
   end
   return applied
 end
@@ -190,11 +212,8 @@ local function controlTick()
     mode = "standby"
   end
 
-  local applied = {}
-  for name, value in pairs(commands) do
-    local ok, result = pcall(writeOutput, config, name, value)
-    applied[name] = ok and result or 0
-  end
+  local okApplied, applied = pcall(writeOutputs, config, commands)
+  if not okApplied then applied = {} end
 
   recorder:append({
     mode = mode,
