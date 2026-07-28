@@ -18,6 +18,13 @@ end
 local runtimeSource, err = readAll(SOURCE)
 if not runtimeSource then printError(err); return end
 
+local okHardwarePatch, patchedSource = pcall(function()
+  return dofile(ROOT .. "/hardware_patch.lua").apply(runtimeSource)
+end)
+if okHardwarePatch and type(patchedSource) == "string" then
+  runtimeSource = patchedSource
+end
+
 local injected = table.concat({
   '-- NavRemote input compatibility is applied to the generated controller source.',
   'source = source:gsub("Esc: back", "Q: back")',
@@ -133,12 +140,13 @@ local injected = table.concat({
   '  if id=="dashboard" then dashboard(data)',
   '  elseif id=="targets" then targetsPage(data)',
   '  elseif id=="routes" then pathPage(data,"Route")',
-  '  elseif id=="schedules" then pathPage(data,"Schedule")',
+  '  elseif id=="schedules" then schedulePage(data)',
   '  elseif id=="modes" then modesPage(data)',
   '  elseif id=="manual" then manualPage()',
   '  elseif id=="profiles" then profilesPage()',
   '  elseif id=="logs" then logsPage(data)',
-  '  elseif id=="settings" then settingsPage(data) end',
+  '  elseif id=="settings" then settingsPage(data)',
+  '  elseif id=="hardware" and hardwarePage then hardwarePage(data) end',
   'end]=]',
   'local uiBridge = [=[_ENV.clear=clear',
   '_ENV.header=header',
@@ -180,8 +188,10 @@ local injected = table.concat({
   'source = select(1, replacePlainOnce(source, keyAnchor, mouseBranch))',
 }, "\n")
 
-local anchor = "if count ~= 5 then"
+local anchor = "if count < 4 then"
 local at = runtimeSource:find(anchor, 1, true)
+if not at then anchor = "if count ~= 5 then"; at = runtimeSource:find(anchor, 1, true) end
+if not at then anchor = "local program,loadErr=load(source"; at = runtimeSource:find(anchor, 1, true) end
 if not at then printError("NavRemote input runtime could not find controller patch anchor."); return end
 runtimeSource = runtimeSource:sub(1, at - 1) .. injected .. "\n" .. runtimeSource:sub(at)
 

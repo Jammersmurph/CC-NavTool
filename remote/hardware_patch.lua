@@ -113,11 +113,26 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local okSet,setErr=request("monitor-set",{monitor=monitor})
     message=okSet and (monitor=="clear" and "Monitor disabled" or "Monitor set: "..tostring(monitor)) or tostring(setErr)
   end
+  local function toggleAirship(airship)
+    local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+    if not okMode and tostring(e) == "unsupported command" then
+      okMode,e=request("hardware-airship",{mode="airship",enabled=not airship})
+    end
+    if okMode and okMode.hardware then hardware=okMode.hardware end
+    if okMode then
+      message="Airship mode "..(airship and "off" or "on")
+    elseif tostring(e) == "unsupported command" then
+      message="Update/reboot aircraft NavTool for airship mode"
+    else
+      message=tostring(e)
+    end
+  end
   while true do
     local response,err=request("hardware-list")
     local hardware=response and response.hardware or {assignments={},relays={}}
     clear(colors.black); header("Hardware",err and "[ OFFLINE ]" or "[ CONFIG ]")
     writeAt(3,3,"Flight output assignments",colors.cyan)
+    if message and message ~= "" then writeAt(3,4,tostring(message):sub(1,45),colors.yellow) end
     local rowControl={}
     local y=5
     for i,control in ipairs(controls) do
@@ -139,11 +154,14 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         end
       end
     end
+    local airship=hardware.modes and hardware.modes.airship == true
     local buttonY=math.min(y+1,15)
     fill(3,buttonY,18,1,colors.blue); writeAt(5,buttonY,"ADD ASSIGNMENT",colors.white,colors.blue)
     fill(24,buttonY,18,1,colors.red); writeAt(29,buttonY,"DELETE",colors.white,colors.red)
+    fill(3,buttonY+2,24,1,airship and colors.lime or colors.gray)
+    writeAt(5,buttonY+2,"AIRSHIP MODE: "..(airship and "ON" or "OFF"),airship and colors.black or colors.white,airship and colors.lime or colors.gray)
     writeAt(3,buttonY+1,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("Number: edit  A:add  D:delete  M:monitor  Q:back")
+    footer("Number: edit  A:add  D:delete  V:airship  M:monitor  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
     local forceAdd=false
@@ -156,6 +174,9 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       end
       if a==keys.d then
         deleteAssignment(hardware)
+      end
+      if a==keys.v then
+        toggleAirship(airship)
       end
       if a==keys.m then
         configureMonitor()
@@ -174,6 +195,8 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       if chosen then index=chosen; forceAdd=true end
     elseif event=="mouse_click" and b>=24 and b<=41 and c==buttonY then
       deleteAssignment(hardware)
+    elseif event=="mouse_click" and b>=3 and b<=26 and c==buttonY+2 then
+      toggleAirship(airship)
     elseif event=="mouse_click" and b>=3 and b<=47 and rowControl[c] then
       local clicked=rowControl[c]
       local control=controls[clicked]
@@ -260,8 +283,10 @@ local profileAt = source:find(profileMarker,1,true)
 if profileAt then source=source:sub(1,profileAt-1)..hardwarePageSource.."\n\n"..source:sub(profileAt) end
 ]=]
 
-  local marker = "if count ~= 5 then"
+  local marker = "if count < 4 then"
   local updated, ok = insertBefore(runtimeSource, marker, injection)
+  if not ok then updated, ok = insertBefore(runtimeSource, "if count ~= 5 then", injection) end
+  if not ok then updated, ok = insertBefore(runtimeSource, "local program,loadErr=load(source", injection) end
   if not ok then error("Hardware patch could not find NavRemote controller anchor") end
   return updated
 end

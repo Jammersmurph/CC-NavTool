@@ -59,7 +59,7 @@ for _, stale in ipairs({"ui_runtime.lua", "navremote.lua", "update.bootstrap.lua
 end
 local launcher = fs.open("/navremote.lua", "w")
 if not launcher then printError("Could not create /navremote.lua"); return end
-launcher.write('shell.run("/navremote/runtime.lua", ...)\n')
+launcher.write('shell.run("/navremote/input_runtime.lua", ...)\n')
 launcher.close()
 print("NavRemote installed.")
 print("Run: navremote")

@@ -1,4 +1,4 @@
-local VERSION = "0.5.0-beta"
+local VERSION = "0.5.1-nightly"
 local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
@@ -73,6 +73,11 @@ local function request(command, extra)
   local key = channel .. "\0" .. host
   local hostId = hostCache[key] or rednet.lookup(channel, host)
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
   local payload = extra or {}
   payload.command, payload.key = command, connection.sharedKey or ""
@@ -265,6 +270,90 @@ local function runPath(data,kind,name)
   message=kind.." started: "..name
 end
 
+local function schedulePage(data)
+  while true do
+    local response,err=request("status")
+    local status=response and response.data or {}
+    local active=status.activeSchedule
+    local schedules=data.schedules or {}
+    local names=Storage.names(schedules)
+    local w,h=term.getSize()
+    clear(colors.black); header("Schedules")
+    local y=3
+    if active then
+      fill(1,y,w,5,colors.gray)
+      writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
+      writeAt(2,y,tostring(active.name or "?"),colors.lime)
+      writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
+      if active.dwellUntil then
+        local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
+        writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
+      end
+      y=y+1
+      local schedule=schedules[active.name]
+      if schedule and schedule.stops then
+        for i,stop in ipairs(schedule.stops) do
+          if y>12 then break end
+          local marker=i==(active.index or 1) and ">" or " "
+          local color=i==(active.index or 1) and colors.lime or colors.lightGray
+          local label=tostring(stop.name or ("Stop "..i))
+          local coord=string.format("%.0f,%.0f,%.0f",tonumber(stop.x) or 0,tonumber(stop.y) or 0,tonumber(stop.z) or 0)
+          writeAt(2,y,marker.." "..string.sub(label,1,14),color)
+          writeAt(20,y,coord,colors.lightGray)
+          y=y+1
+        end
+      end
+      y=y+1
+    else
+      writeAt(2,y,"No active schedule",colors.lightGray); y=y+2
+    end
+    if y<14 then
+      writeAt(2,y,"SAVED SCHEDULES",colors.cyan); y=y+1
+      if #names==0 then
+        writeAt(2,y,"(none)",colors.lightGray); y=y+1
+      else
+        for i,name in ipairs(names) do
+          if y>14 then break end
+          local schedule=schedules[name]
+          local stops=schedule and schedule.stops and #schedule.stops or 0
+          local loopStr=schedule and schedule.loop and " [loop]" or ""
+          writeAt(2,y,tostring(i)..". "..string.sub(name,1,20).." ("..stops.." stops"..loopStr..")",colors.white)
+          y=y+1
+        end
+      end
+    end
+    local help=""
+    if active then
+      help="S:skip P:pause X:stop "
+    end
+    help=help.."R:run A:add D:delete Esc:back"
+    footer(help)
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+      local name=prompt("Schedule to run")
+      if name and schedules[name] then
+        local r,e=request("run-schedule",{name=name})
+        message=r and "Schedule started: "..name or e
+      elseif name then message="Not found: "..name end
+    elseif key==keys.s and active then
+      local r,e=request("skip-stop"); message=r and "Stop skipped" or e
+    elseif key==keys.p and active then
+      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e
+    elseif key==keys.x and active then
+      local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
+    elseif key==keys.a then
+      createPath(data,"Schedule")
+    elseif key==keys.d then
+      local name=prompt("Schedule to delete")
+      if name and schedules[name] and confirm("Delete "..name) then
+        request("delete-schedule",{name=name})
+        data.schedules[name]=nil; saveData(data); message="Deleted: "..name
+      end
+    end
+  end
+end
+
 local function pathPage(data,kind)
   local map=kind=="Route" and data.routes or data.schedules
   while true do
@@ -294,36 +383,114 @@ local function modesPage()
 end
 
 local function manualPage()
-  clear(colors.black); header("Manual control")
-  writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
-  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
-  writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
-  writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
-  footer("Movement keys  X: outputs off  Esc: back")
+  local hardwareResponse = request("hardware-list")
+  local airship = hardwareResponse and hardwareResponse.hardware and hardwareResponse.hardware.modes and hardwareResponse.hardware.modes.airship == true
+  if not airship then
+    clear(colors.black); header("Manual control")
+    writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
+    writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
+    writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
+    writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
+    footer("Movement keys  X: outputs off  Esc: back")
+    while true do
+      local _,key=os.pullEvent("key")
+      if key==keys.escape then return end
+      local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
+      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+      if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+    end
+  end
+
+  local vertical=2
+  local function sendVertical()
+    local ok,err=request("airship-vertical-control",{strength=vertical})
+    if ok then message="Vertical analog "..tostring(vertical)
+    elseif tostring(err)=="unsupported command" then message="Update/reboot aircraft NavTool for slider"
+    else message=tostring(err) end
+  end
+  local function draw()
+    clear(colors.black); header("Manual control","[ AIRSHIP ]")
+    writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
+    writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
+    writeAt(3,7,"Vertical analog",colors.cyan)
+    writeAt(22,7,string.format("%02d / 15",vertical),colors.lime)
+    fill(6,9,5,15,colors.gray)
+    for i=0,14 do
+      local y=23-i
+      local active=i<vertical
+      fill(7,y,3,1,active and colors.lime or colors.black)
+    end
+    writeAt(14,9,"15",colors.lightGray); writeAt(14,16,"08",colors.lightGray); writeAt(14,23,"00",colors.lightGray)
+    writeAt(22,10,"Up/Down arrows adjust",colors.lightGray)
+    writeAt(22,11,"Click slider to set",colors.lightGray)
+    writeAt(22,13,"Space sends current value",colors.yellow)
+    if message~="" then writeAt(22,15,message:sub(1,32),colors.yellow) end
+    footer("WASD move  Up/Down/click vertical  Space:set  X:off  Esc:back")
+  end
+  draw()
   while true do
-    local _,key=os.pullEvent("key")
-    if key==keys.escape then return end
-    local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
-    if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
-    if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+    local event,a,b,c=os.pullEvent()
+    if event=="key" then
+      if a==keys.escape then return
+      elseif a==keys.up then vertical=math.min(15,vertical+1); sendVertical(); draw()
+      elseif a==keys.down then vertical=math.max(0,vertical-1); sendVertical(); draw()
+      elseif a==keys.space then sendVertical(); draw()
+      elseif a==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+      local control=a==keys.w and "forward" or a==keys.s and "reverse" or a==keys.a and "left" or a==keys.d and "right"
+      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+    elseif event=="mouse_click" and b>=6 and b<=10 and c>=9 and c<=23 then
+      vertical=math.max(0,math.min(15,24-c)); sendVertical(); draw()
+    end
   end
 end
 
 local function dashboard(data)
-  local status,err=refresh(data)
+  local response,err=request("status")
+  local status=response and response.data or data.lastStatus
   clear(colors.black); header("Dashboard",err and "[ OFFLINE ]" or "[ SABLE ONLINE ]")
   status=status or {}; local p=status.position or {}; local v=status.velocity or {}
   writeAt(3,3,"Aircraft",colors.cyan); writeAt(15,3,config.activeProfile or "none")
   writeAt(3,4,"Host",colors.cyan); writeAt(15,4,(profile() and profile().host) or "none")
-  writeAt(3,6,"Mode"); writeAt(15,6,status.mode or "unknown",colors.lime)
-  writeAt(3,7,"Target"); writeAt(15,7,status.target and (status.target.name or "coordinates") or "none",colors.yellow)
-  writeAt(3,9,"Position",colors.cyan)
-  writeAt(3,10,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,10,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,10,string.format("Z %8.1f",tonumber(p.z) or 0))
-  writeAt(3,12,"Velocity",colors.cyan)
-  writeAt(3,13,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,13,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,13,string.format("Z %8.2f",tonumber(v.z) or 0))
-  writeAt(3,15,"Local library",colors.cyan)
-  writeAt(3,16,"Targets "..#Storage.names(data.targets)); writeAt(18,16,"Routes "..#Storage.names(data.routes)); writeAt(32,16,"Schedules "..#Storage.names(data.schedules))
-  waitBack("R: refresh  Esc: back")
+  writeAt(3,5,"Telemetry",colors.cyan); writeAt(15,5,status.telemetry and "ONLINE" or "OFFLINE",status.telemetry and colors.lime or colors.red)
+  writeAt(3,6,"Source",colors.cyan); writeAt(15,6,tostring(status.source or "none"))
+  writeAt(3,8,"Mode"); writeAt(15,8,status.mode or "unknown",colors.lime)
+  local heading = status.heading
+  local headingDeg = heading and heading.x and math.deg(math.atan2(heading.x, heading.z or 0))
+  local headingText = headingDeg and (string.format("%.0f", headingDeg) .. " " .. degreesToCardinal(headingDeg)) or "n/a"
+  writeAt(3,9,"Heading",colors.cyan); writeAt(15,9,headingText)
+  writeAt(3,10,"Target"); writeAt(15,10,status.target and (status.target.name or "coords") or "none",colors.yellow)
+  if status.target then
+    local tx,ty,tz=tonumber(status.target.x) or 0,tonumber(status.target.y) or 0,tonumber(status.target.z) or 0
+    writeAt(15,11,string.format("%.1f %.1f %.1f",tx,ty,tz),colors.lightGray)
+  end
+  if status.distanceToTarget then writeAt(3,12,"Distance",colors.cyan); writeAt(15,12,string.format("%.1f blocks",status.distanceToTarget)) end
+  writeAt(3,14,"Position",colors.cyan)
+  writeAt(3,15,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,15,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,15,string.format("Z %8.1f",tonumber(p.z) or 0))
+  writeAt(3,16,"Velocity",colors.cyan)
+  writeAt(3,17,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,17,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,17,string.format("Z %8.2f",tonumber(v.z) or 0))
+  local active=status.activeSchedule
+  if active then
+    writeAt(3,19,"Active Schedule",colors.cyan)
+    writeAt(15,19,tostring(active.name or "?").." stop "..tostring(active.index or 1),colors.lime)
+  end
+  writeAt(3,21,"Monitor",colors.cyan)
+  writeAt(15,21,status.peripheral or status.sublevel or "none")
+  local help="R: refresh  Esc: back"
+  if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
+  footer(help)
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+      local s,e=refresh(data); if not s and e then message=e end; return dashboard(data)
+    elseif key==keys.s and active then
+      local r,e=request("skip-stop"); message=r and "Stop skipped" or e; return dashboard(data)
+    elseif key==keys.p and active then
+      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e; return dashboard(data)
+    elseif key==keys.x and active then
+      local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e; return dashboard(data)
+    end
+  end
 end
 
 local function profilesPage()
@@ -445,7 +612,7 @@ while true do
       if id=="dashboard" then dashboard(data)
       elseif id=="targets" then targetsPage(data)
       elseif id=="routes" then pathPage(data,"Route")
-      elseif id=="schedules" then pathPage(data,"Schedule")
+      elseif id=="schedules" then schedulePage(data)
       elseif id=="modes" then modesPage()
       elseif id=="manual" then manualPage()
       elseif id=="profiles" then profilesPage()

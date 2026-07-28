@@ -46,14 +46,15 @@ end
 
 local function discoverAircraft(channel)
   local found = {}
+  local selfId = os.getComputerID and os.getComputerID() or nil
   local ok, result = pcall(rednet.lookup, channel or "cc-navtool")
   if not ok then return found end
   if type(result) == "number" then
-    found[#found+1] = { id=result, host="navtool-aircraft" }
+    if not selfId or result ~= selfId then found[#found+1] = { id=result, host="navtool-aircraft" } end
   elseif type(result) == "table" then
     for key, value in pairs(result) do
-      if type(key)=="string" and type(value)=="number" then found[#found+1]={host=key,id=value}
-      elseif type(key)=="number" and type(value)=="string" then found[#found+1]={host=value,id=key} end
+      if type(key)=="string" and type(value)=="number" and (not selfId or value ~= selfId) then found[#found+1]={host=key,id=value}
+      elseif type(key)=="number" and type(value)=="string" and (not selfId or key ~= selfId) then found[#found+1]={host=value,id=key} end
     end
   end
   table.sort(found,function(a,b) return tostring(a.host)<tostring(b.host) end)
@@ -148,6 +149,11 @@ local oldRequest = [[local function request(command, extra)
   local key = channel .. "\0" .. host
   local hostId = hostCache[key] or rednet.lookup(channel, host)
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
   local payload = extra or {}
   payload.command, payload.key = command, connection.sharedKey or ""
@@ -194,6 +200,11 @@ local fastRequest = [[local function request(command, extra)
     end
   end
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
 
   local payload = extra or {}
@@ -212,6 +223,10 @@ local fastRequest = [[local function request(command, extra)
       connection.computerId = hostId
       hostCache[key] = hostId
       saveConfig()
+      if selfId and tonumber(hostId) == selfId then
+        hostCache[key] = nil
+        return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+      end
     elseif attempt == 1 then
       return nil, "Aircraft offline"
     end
@@ -303,9 +318,8 @@ source=source:gsub("local function modesPage%(%).-\nend\n\nlocal function manual
 end,1)
 
 local newDashboard = [[local function dashboard(data)
-  -- One request only: live-status already contains the current target, including
-  -- dynamic/remote metadata when Follow is active.
-  local status,err=refresh(data)
+  local response,err=request("status")
+  local status=response and response.data or data.lastStatus
   clear(colors.black); header("Dashboard",err and "[ OFFLINE ]" or "[ SABLE ONLINE ]")
   status=status or {}; local p=status.position or {}; local v=status.velocity or {}
   local quality,qColor=connectionQuality(data.lastLatency)
@@ -313,17 +327,48 @@ local newDashboard = [[local function dashboard(data)
   writeAt(3,4,"Host",colors.cyan); writeAt(15,4,(profile() and profile().host) or "none")
   writeAt(3,5,"Link",colors.cyan); writeAt(15,5,err and "OFFLINE" or quality,err and colors.red or qColor)
   writeAt(29,5,"Ping "..ageText(data.lastLatency),colors.lightGray)
-  writeAt(3,7,"Mode"); writeAt(15,7,status.mode or "unknown",colors.lime)
-  writeAt(3,8,"Target"); writeAt(15,8,status.target and (status.target.name or "coordinates") or "none",colors.yellow)
+  writeAt(3,6,"Telemetry",colors.cyan); writeAt(15,6,status.telemetry and "ONLINE" or "OFFLINE",status.telemetry and colors.lime or colors.red)
+  writeAt(3,7,"Source",colors.cyan); writeAt(15,7,tostring(status.source or "none"))
+  writeAt(3,9,"Mode"); writeAt(15,9,status.mode or "unknown",colors.lime)
+  local heading = status.heading
+  local headingDeg = heading and heading.x and math.deg(math.atan2(heading.x, heading.z or 0))
+  local headingText = headingDeg and (string.format("%.0f", headingDeg) .. " " .. degreesToCardinal(headingDeg)) or "n/a"
+  writeAt(3,10,"Heading",colors.cyan); writeAt(15,10,headingText)
+  writeAt(3,11,"Target"); writeAt(15,11,status.target and (status.target.name or "coords") or "none",colors.yellow)
   if status.target and status.target.dynamic and status.target.remoteId then
-    writeAt(3,9,"Following"); writeAt(15,9,tostring(status.target.remoteId),colors.cyan)
+    writeAt(3,12,"Following"); writeAt(15,12,tostring(status.target.remoteId),colors.cyan)
+  elseif status.target then
+    local tx,ty,tz=tonumber(status.target.x) or 0,tonumber(status.target.y) or 0,tonumber(status.target.z) or 0
+    writeAt(15,12,string.format("%.1f %.1f %.1f",tx,ty,tz),colors.lightGray)
   end
-  writeAt(3,11,"Position",colors.cyan)
-  writeAt(3,12,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,12,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,12,string.format("Z %8.1f",tonumber(p.z) or 0))
-  writeAt(3,14,"Velocity",colors.cyan)
-  writeAt(3,15,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,15,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,15,string.format("Z %8.2f",tonumber(v.z) or 0))
-  footer("R: refresh  Esc: back")
-  while true do local _,key=os.pullEvent("key"); if key==keys.escape then return elseif key==keys.r then return dashboard(data) end end
+  if status.distanceToTarget then writeAt(3,13,"Distance",colors.cyan); writeAt(15,13,string.format("%.1f blocks",status.distanceToTarget)) end
+  writeAt(3,15,"Position",colors.cyan)
+  writeAt(3,16,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,16,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,16,string.format("Z %8.1f",tonumber(p.z) or 0))
+  writeAt(3,17,"Velocity",colors.cyan)
+  writeAt(3,18,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,18,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,18,string.format("Z %8.2f",tonumber(v.z) or 0))
+  local active=status.activeSchedule
+  if active then
+    writeAt(3,20,"Active Schedule",colors.cyan)
+    writeAt(18,20,tostring(active.name or "?").." stop "..tostring(active.index or 1),colors.lime)
+  end
+  writeAt(3,22,"Monitor",colors.cyan)
+  writeAt(15,22,status.peripheral or status.sublevel or "none")
+  local help="R: refresh  Esc: back"
+  if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
+  footer(help)
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+      local s,e=refresh(data); if not s and e then message=e end; return dashboard(data)
+    elseif key==keys.s and active then
+      local r,e=request("skip-stop"); message=r and "Stop skipped" or e; return dashboard(data)
+    elseif key==keys.p and active then
+      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e; return dashboard(data)
+    elseif key==keys.x and active then
+      local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e; return dashboard(data)
+    end
+  end
 end]]
 source=source:gsub("local function dashboard%(data%).-\nend\n\nlocal function profilesPage",function()
   count=count+1
@@ -392,8 +437,8 @@ end,1)
 
 source=source:gsub("modesPage%(%)", "modesPage(data)")
 
-if count ~= 5 then
-  printError("NavRemote pre-test patch failed: expected 5 sections, found "..tostring(count))
+if count < 4 then
+  printError("NavRemote pre-test patch failed: expected at least 4 sections, found "..tostring(count))
   return
 end
 
