@@ -265,6 +265,90 @@ local function runPath(data,kind,name)
   message=kind.." started: "..name
 end
 
+local function schedulePage(data)
+  while true do
+    local response,err=request("status")
+    local status=response and response.data or {}
+    local active=status.activeSchedule
+    local schedules=data.schedules or {}
+    local names=Storage.names(schedules)
+    local w,h=term.getSize()
+    clear(colors.black); header("Schedules")
+    local y=3
+    if active then
+      fill(1,y,w,5,colors.gray)
+      writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
+      writeAt(2,y,tostring(active.name or "?"),colors.lime)
+      writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
+      if active.dwellUntil then
+        local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
+        writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
+      end
+      y=y+1
+      local schedule=schedules[active.name]
+      if schedule and schedule.stops then
+        for i,stop in ipairs(schedule.stops) do
+          if y>12 then break end
+          local marker=i==(active.index or 1) and ">" or " "
+          local color=i==(active.index or 1) and colors.lime or colors.lightGray
+          local label=tostring(stop.name or ("Stop "..i))
+          local coord=string.format("%.0f,%.0f,%.0f",tonumber(stop.x) or 0,tonumber(stop.y) or 0,tonumber(stop.z) or 0)
+          writeAt(2,y,marker.." "..string.sub(label,1,14),color)
+          writeAt(20,y,coord,colors.lightGray)
+          y=y+1
+        end
+      end
+      y=y+1
+    else
+      writeAt(2,y,"No active schedule",colors.lightGray); y=y+2
+    end
+    if y<14 then
+      writeAt(2,y,"SAVED SCHEDULES",colors.cyan); y=y+1
+      if #names==0 then
+        writeAt(2,y,"(none)",colors.lightGray); y=y+1
+      else
+        for i,name in ipairs(names) do
+          if y>14 then break end
+          local schedule=schedules[name]
+          local stops=schedule and schedule.stops and #schedule.stops or 0
+          local loopStr=schedule and schedule.loop and " [loop]" or ""
+          writeAt(2,y,tostring(i)..". "..string.sub(name,1,20).." ("..stops.." stops"..loopStr..")",colors.white)
+          y=y+1
+        end
+      end
+    end
+    local help=""
+    if active then
+      help="S:skip P:pause X:stop "
+    end
+    help=help.."R:run A:add D:delete Esc:back"
+    footer(help)
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+      local name=prompt("Schedule to run")
+      if name and schedules[name] then
+        local r,e=request("run-schedule",{name=name})
+        message=r and "Schedule started: "..name or e
+      elseif name then message="Not found: "..name end
+    elseif key==keys.s and active then
+      local r,e=request("skip-stop"); message=r and "Stop skipped" or e
+    elseif key==keys.p and active then
+      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e
+    elseif key==keys.x and active then
+      local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
+    elseif key==keys.a then
+      createPath(data,"Schedule")
+    elseif key==keys.d then
+      local name=prompt("Schedule to delete")
+      if name and schedules[name] and confirm("Delete "..name) then
+        request("delete-schedule",{name=name})
+        data.schedules[name]=nil; saveData(data); message="Deleted: "..name
+      end
+    end
+  end
+end
+
 local function pathPage(data,kind)
   local map=kind=="Route" and data.routes or data.schedules
   while true do
@@ -477,7 +561,7 @@ while true do
       if id=="dashboard" then dashboard(data)
       elseif id=="targets" then targetsPage(data)
       elseif id=="routes" then pathPage(data,"Route")
-      elseif id=="schedules" then pathPage(data,"Schedule")
+      elseif id=="schedules" then schedulePage(data)
       elseif id=="modes" then modesPage()
       elseif id=="manual" then manualPage()
       elseif id=="profiles" then profilesPage()
