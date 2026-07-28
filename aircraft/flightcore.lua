@@ -211,9 +211,9 @@ local function controlTick()
 
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
-        if airshipCruiseGate and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
+        if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.65) then
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.94) then
           thrust = 0
           speedPID:reset()
         end
