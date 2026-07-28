@@ -201,7 +201,7 @@ function Director.solve(state, target, config)
     arrivalRadius = math.max(arrivalRadius, tonumber(navigation.airshipArrivalRadius) or 6)
   end
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
-  local finalOutputRadius = math.max(arrivalRadius, tonumber(navigation.finalOutputRadius) or 20)
+  local finalOutputRadius = math.max(arrivalRadius, tonumber(navigation.finalOutputRadius) or 10)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
   local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
   local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
