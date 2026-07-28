@@ -225,7 +225,10 @@ function Control:outputs(state)
     local finalHeadingReached = true
     if guidance.finalHeading then
       local finalHeadingError, finalAlignment = Director.headingError(state.heading, guidance.finalHeading)
-      local headingTolerance = math.rad(math.max(0, tonumber(self.config.navigation and self.config.navigation.headingTolerance) or 4))
+      local nav = self.config.navigation or {}
+      local headingTolerance = math.max(0, tonumber(nav.headingTolerance) or 4)
+      if guidance.airshipMode then headingTolerance = math.max(headingTolerance, tonumber(nav.airshipHeadingTolerance) or 15) end
+      headingTolerance = math.rad(headingTolerance)
       finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
       if guidance.finalCapture then headingError, alignment = finalHeadingError, finalAlignment end
     end
