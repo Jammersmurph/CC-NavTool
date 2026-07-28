@@ -60,6 +60,7 @@ local function stagedTarget(state, target, config)
   local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 310
   local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
   local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
+  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
 
   local horizontallyLocked = horizontalDistance <= arrivalRadius
     and driftSpeed <= settleVelocity
@@ -106,7 +107,8 @@ local function stagedTarget(state, target, config)
     cruiseAltitude = cruiseAltitude,
     cruiseAltitudeMinimum = cruiseAltitudeMinimum,
     cruiseAltitudeMaximum = cruiseAltitudeMaximum,
-    cruiseAltitudeReady = position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum,
+    cruiseAltitudeReady = not airshipMode and position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum,
+    airshipMode = airshipMode,
   }
 end
 
@@ -198,7 +200,7 @@ function Director.solve(state, target, config)
   local desiredSpeed = precisionSpeed + (cruiseSpeed - precisionSpeed) * speedRatio
   if horizontalDistance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
   if horizontalDistance <= arrivalRadius then desiredSpeed = 0 end
-  if stage and stage.phase == "horizontal-cruise" and not stage.cruiseAltitudeReady then desiredSpeed = 0 end
+  if stage and stage.phase == "horizontal-cruise" and not stage.cruiseAltitudeReady and not stage.airshipMode then desiredSpeed = 0 end
   local approachSpeedAlong = horizontalSpeedAlong(state, heading)
   local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
   local finalCapture = horizontalDistance <= arrivalRadius
@@ -236,6 +238,7 @@ function Director.solve(state, target, config)
     transitionRadius = stage and stage.transitionRadius or nil,
     cruiseAltitude = stage and stage.cruiseAltitude or nil,
     cruiseAltitudeReady = stage and stage.cruiseAltitudeReady or false,
+    airshipMode = stage and stage.airshipMode or false,
   }
 end
 
