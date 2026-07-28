@@ -89,6 +89,7 @@ function Control.new(config)
     positionVertical = PID.new(fc.positionVerticalPID or fc.altitudePID or { kp = 0.22, ki = 0.012, kd = 0.3, minimum = -0.5, maximum = 0.5, integralMinimum = -0.25, integralMaximum = 0.25 }),
     lastClock = os.clock(),
     hoverAltitude = nil,
+    airshipArrivalLock = nil,
     pulse = {},
   }, Control)
 end
@@ -135,6 +136,7 @@ function Control:reset()
   self.positionLateral:reset()
   self.positionVertical:reset()
   self.hoverAltitude = nil
+  self.airshipArrivalLock = nil
   self.pulse = {}
 end
 
@@ -145,17 +147,29 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
   if not position or not target or not forward then return false end
 
   if guidance.arrived then
+    if type(self.config.hardware) == "table" and self.config.hardware.airshipMode == true then
+      self.airshipArrivalLock = self.airshipArrivalLock or { x = target.x, z = target.z }
+      local driftLimit = tonumber(self.config.hardware.airshipReturnDrift) or 5
+      local lockDx, lockDz = position.x - self.airshipArrivalLock.x, position.z - self.airshipArrivalLock.z
+      if math.sqrt(lockDx * lockDx + lockDz * lockDz) > driftLimit then
+        self.airshipArrivalLock = nil
+        notes[#notes + 1] = "airship drift return"
+        return false
+      end
+      commands.__airshipArrived = true
+      commands.up, commands.down = 0, 0
+    else
+      self.airshipArrivalLock = nil
+    end
     self.positionForward:reset()
     self.positionLateral:reset()
     self.positionVertical:reset()
     self.pulse = {}
-    if type(self.config.hardware) == "table" and self.config.hardware.airshipMode == true then
-      commands.__airshipArrived = true
-      commands.up, commands.down = 0, 0
-    end
     notes[#notes + 1] = "coordinate lock"
     return true
   end
+
+  self.airshipArrivalLock = nil
 
   local dx, dy, dz = target.x - position.x, target.y - position.y, target.z - position.z
   local forwardError = dx * forward.x + dz * forward.z

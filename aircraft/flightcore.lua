@@ -128,6 +128,7 @@ local recorder = Recorder.new(fc.recorder or {})
 
 local lastClock = os.clock()
 local running = true
+local airshipArrivalLock
 
 local function stop(reason)
   running = false
@@ -162,10 +163,26 @@ local function controlTick()
     guidance, fault = Director.solve(state, target, config)
     if guidance then
       if guidance.arrived then
-        if type(config.hardware) == "table" and config.hardware.airshipMode == true then commands.__airshipArrived = true end
-        save(MODE_PATH, { mode = "hover" })
-        mode = "hover"
+        if type(config.hardware) == "table" and config.hardware.airshipMode == true and type(state.position) == "table" and type(guidance.target) == "table" then
+          airshipArrivalLock = airshipArrivalLock or { x = guidance.target.x, z = guidance.target.z }
+          local driftLimit = tonumber(config.hardware.airshipReturnDrift) or 5
+          local lockDx = (tonumber(state.position.x) or 0) - airshipArrivalLock.x
+          local lockDz = (tonumber(state.position.z) or 0) - airshipArrivalLock.z
+          if math.sqrt(lockDx * lockDx + lockDz * lockDz) <= driftLimit then
+            commands.__airshipArrived = true
+            save(MODE_PATH, { mode = "hover" })
+            mode = "hover"
+          else
+            airshipArrivalLock = nil
+            guidance.arrived = false
+          end
+        else
+          airshipArrivalLock = nil
+          save(MODE_PATH, { mode = "hover" })
+          mode = "hover"
+        end
       else
+        airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
         if guidance.finalCapture then
           headingPID:reset()
