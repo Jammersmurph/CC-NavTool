@@ -238,12 +238,7 @@ function Control:outputs(state)
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
     local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
-    local holdDescentForHeading = guidance.finalCapture and guidance.finalHeading and not finalHeadingReached and (guidance.altitudeError or 0) < 0
-    if holdDescentForHeading then
-      self.altitude:reset()
-      commands.up, commands.down = 0, 0
-      notes[#notes + 1] = "descent held for final heading"
-    elseif guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+    if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
       self.altitude:reset()
       commands.up, commands.down = 0, 0
     else
