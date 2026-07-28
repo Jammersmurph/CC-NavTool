@@ -28,6 +28,10 @@ local function degreesToCardinal(degrees)
   return best
 end
 
+local function nowSeconds()
+  return os.epoch and (os.epoch("utc") / 1000) or os.time()
+end
+
 local config = dofile(CONFIG_PATH)
 config.profiles = type(config.profiles) == "table" and config.profiles or {}
 config.activeProfile = config.activeProfile or next(config.profiles)
@@ -285,14 +289,26 @@ local function schedulePage(data)
     clear(colors.black); header("Schedules")
     local y=3
     if active then
+      local arrival=status.scheduleArrival or {}
       fill(1,y,w,5,colors.gray)
       writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
       writeAt(2,y,tostring(active.name or "?"),colors.lime)
       writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
       if active.paused then writeAt(35,y,"PAUSED",colors.yellow) end
       if active.dwellUntil then
-        local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
-        writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
+        local remaining=math.max(0,math.ceil((tonumber(active.dwellUntil) or 0)-nowSeconds()))
+        writeAt(35,y,"Depart in "..tostring(remaining).."s",colors.yellow)
+      elseif arrival.arrived then
+        writeAt(35,y,"ARRIVED",colors.lime)
+      elseif arrival.axesReached then
+        writeAt(35,y,"SETTLING",colors.yellow)
+      end
+      y=y+1
+      local reached=arrival.arrived and "ARRIVED" or (arrival.axesReached and "At coords, settling" or "Traveling")
+      writeAt(2,y,"Status: "..reached,arrival.arrived and colors.lime or colors.lightGray)
+      if active.dwellUntil then
+        local remaining=math.max(0,math.ceil((tonumber(active.dwellUntil) or 0)-nowSeconds()))
+        writeAt(25,y,"Departure countdown: "..tostring(remaining).."s",colors.yellow)
       end
       y=y+1
       local schedule=schedules[active.name]
@@ -333,25 +349,27 @@ local function schedulePage(data)
     end
     help=help.."R:run A:add D:delete Esc:back"
     footer(help)
-    local _,key=os.pullEvent("key")
-    if key==keys.escape then return
-    elseif key==keys.r then
+    local timer=os.startTimer(5)
+    local event,key=os.pullEvent()
+    if event=="timer" and key==timer then
+    elseif event=="key" and key==keys.escape then return
+    elseif event=="key" and key==keys.r then
       local name=prompt("Schedule to run")
       if name and schedules[name] then
         request("save-schedule",{schedule=schedules[name]})
         local r,e=request("run-schedule",{name=name})
         message=r and "Schedule started: "..name or e
       elseif name then message="Not found: "..name end
-    elseif key==keys.s and active then
+    elseif event=="key" and key==keys.s and active then
       local r,e=request("skip-stop"); message=r and "Stop skipped" or e
-    elseif key==keys.p and active then
+    elseif event=="key" and key==keys.p and active then
       local r,e=request(active.paused and "resume-schedule" or "pause-schedule")
       message=r and (active.paused and "Schedule resumed" or "Schedule paused") or e
-    elseif key==keys.x and active then
+    elseif event=="key" and key==keys.x and active then
       local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
-    elseif key==keys.a then
+    elseif event=="key" and key==keys.a then
       createPath(data,"Schedule")
-    elseif key==keys.d then
+    elseif event=="key" and key==keys.d then
       local name=prompt("Schedule to delete")
       if name and schedules[name] and confirm("Delete "..name) then
         request("delete-schedule",{name=name})
