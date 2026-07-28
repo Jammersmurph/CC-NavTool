@@ -46,14 +46,15 @@ end
 
 local function discoverAircraft(channel)
   local found = {}
+  local selfId = os.getComputerID and os.getComputerID() or nil
   local ok, result = pcall(rednet.lookup, channel or "cc-navtool")
   if not ok then return found end
   if type(result) == "number" then
-    found[#found+1] = { id=result, host="navtool-aircraft" }
+    if not selfId or result ~= selfId then found[#found+1] = { id=result, host="navtool-aircraft" } end
   elseif type(result) == "table" then
     for key, value in pairs(result) do
-      if type(key)=="string" and type(value)=="number" then found[#found+1]={host=key,id=value}
-      elseif type(key)=="number" and type(value)=="string" then found[#found+1]={host=value,id=key} end
+      if type(key)=="string" and type(value)=="number" and (not selfId or value ~= selfId) then found[#found+1]={host=key,id=value}
+      elseif type(key)=="number" and type(value)=="string" and (not selfId or key ~= selfId) then found[#found+1]={host=value,id=key} end
     end
   end
   table.sort(found,function(a,b) return tostring(a.host)<tostring(b.host) end)
@@ -148,6 +149,11 @@ local oldRequest = [[local function request(command, extra)
   local key = channel .. "\0" .. host
   local hostId = hostCache[key] or rednet.lookup(channel, host)
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
   local payload = extra or {}
   payload.command, payload.key = command, connection.sharedKey or ""
@@ -194,6 +200,11 @@ local fastRequest = [[local function request(command, extra)
     end
   end
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
 
   local payload = extra or {}
@@ -212,6 +223,10 @@ local fastRequest = [[local function request(command, extra)
       connection.computerId = hostId
       hostCache[key] = hostId
       saveConfig()
+      if selfId and tonumber(hostId) == selfId then
+        hostCache[key] = nil
+        return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+      end
     elseif attempt == 1 then
       return nil, "Aircraft offline"
     end

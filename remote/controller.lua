@@ -73,6 +73,11 @@ local function request(command, extra)
   local key = channel .. "\0" .. host
   local hostId = hostCache[key] or rednet.lookup(channel, host)
   if not hostId then return nil, "Aircraft offline" end
+  local selfId = os.getComputerID and os.getComputerID() or nil
+  if selfId and tonumber(hostId) == selfId then
+    hostCache[key] = nil
+    return nil, "NavRemote cannot control local NavTool; use another computer or NavTool UI"
+  end
   hostCache[key] = hostId
   local payload = extra or {}
   payload.command, payload.key = command, connection.sharedKey or ""
