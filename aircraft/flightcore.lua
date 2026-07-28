@@ -173,11 +173,15 @@ local function controlTick()
           splitAxis(yaw, "left", "right", commands)
         end
 
+        local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
         if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
           altitudePID:reset()
         else
           local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
           splitAxis(vertical, "up", "down", commands)
+        end
+        if airshipCruiseGate then
+          guidance.cruiseAltitudeReady = math.max(commands.up or 0, commands.down or 0) >= 1
         end
         if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
@@ -189,6 +193,7 @@ local function controlTick()
 
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
+        if airshipCruiseGate and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
         if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.65) then
           thrust = 0

@@ -212,11 +212,21 @@ function Control:outputs(state)
     end
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
+    local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
     if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
       self.altitude:reset()
       commands.up, commands.down = 0, 0
     else
       self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    end
+    if airshipCruiseGate then
+      local verticalMaximum = math.max(maximum(self.config, "up"), maximum(self.config, "down"))
+      guidance.cruiseAltitudeReady = math.max(commands.up or 0, commands.down or 0) >= verticalMaximum
+      if guidance.cruiseAltitudeReady then
+        notes[#notes + 1] = "airship cruise: vertical max"
+      else
+        notes[#notes + 1] = "airship cruise: waiting for vertical max"
+      end
     end
     if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
@@ -226,6 +236,7 @@ function Control:outputs(state)
     end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
+    if airshipCruiseGate and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
     local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.65
     if not alignment or alignment < minimumAlignment then
