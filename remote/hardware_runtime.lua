@@ -7,7 +7,15 @@ local source = file.readAll()
 file.close()
 
 local readAnchor = 'if not runtimeSource then printError(err); return end'
-local injected = readAnchor .. '\nruntimeSource = dofile(ROOT .. "/hardware_patch.lua").apply(runtimeSource)'
+local injected = readAnchor .. [[
+local okHardwarePatch, patchedSource = pcall(function()
+  return dofile(ROOT .. "/hardware_patch.lua").apply(runtimeSource)
+end)
+if okHardwarePatch and type(patchedSource) == "string" then
+  runtimeSource = patchedSource
+else
+  _NAVREMOTE_HARDWARE_PATCH_ERROR = tostring(patchedSource)
+end]]
 local first,last = source:find(readAnchor,1,true)
 if not first then printError("Hardware runtime could not find controller source anchor."); return false end
 source = source:sub(1,first-1)..injected..source:sub(last+1)
