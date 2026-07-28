@@ -61,6 +61,15 @@ function Patch.apply(source)
             local okVertical = select(1, pcall(setOutput, config, "up", strength))
             response = okVertical and { ok = true, control = "airship-vertical", value = strength } or { ok = false, error = "vertical output failed" }
           end
+        elseif request.command == "airship-vertical-status" then
+          if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then
+            response = { ok = false, error = "airship mode is off" }
+          else
+            local output = type(config.outputs) == "table" and (config.outputs.up or config.outputs.down) or nil
+            local target = type(output) == "table" and (type(output.targets) == "table" and output.targets[1] or output) or nil
+            local okValue, value = target and target.side and pcall(redstone.getAnalogOutput, target.side)
+            response = okValue and { ok = true, control = "airship-vertical", value = tonumber(value) or 0 } or { ok = false, error = "vertical output unavailable" }
+          end
         elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
           config.hardware = type(config.hardware) == "table" and config.hardware or {}
           if tostring(request.mode or "") == "airship" then

@@ -402,6 +402,18 @@ local function setAirshipVerticalOutput(config, strength)
   return wrote, applied
 end
 
+local function airshipVerticalOutput(config)
+  if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then return false, "airship mode is off" end
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local targets = outputTargets(outputs.up)
+  if #targets == 0 then targets = outputTargets(outputs.down) end
+  local target = targets[1]
+  if type(target) ~= "table" or not target.side then return false, "vertical output unassigned" end
+  local ok, value = pcall(redstone.getAnalogOutput, target.side)
+  if not ok then return false, value end
+  return true, tonumber(value) or 0
+end
+
 local function applyOutputs(config, requested)
   local ok, applied = pcall(applyOutputValues, config, requested or {})
   return ok and applied or {}
@@ -1197,6 +1209,9 @@ local function server(config, debug)
           local safety = type(config.safety) == "table" and config.safety or {}
           local strength = math.max(0, math.min(tonumber(safety.maximumOutput) or 15, tonumber(request.strength) or 0))
           local okAirship, value = setAirshipVerticalOutput(config, strength)
+          response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
+        elseif request.command == "airship-vertical-status" then
+          local okAirship, value = airshipVerticalOutput(config)
           response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
         elseif request.command == "monitor-list" then
           response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
