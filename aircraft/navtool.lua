@@ -8,6 +8,31 @@ local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
+
+local CARDINAL_TO_DEGREES = {
+  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
+}
+local DEGREES_TO_CARDINAL = {
+  [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
+  [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
+}
+
+local function cardinalToDegrees(input)
+  if input == nil or input == "" then return nil end
+  local key = tostring(input):lower()
+  return CARDINAL_TO_DEGREES[key]
+end
+
+local function degreesToCardinal(degrees)
+  degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
+  local best, bestDist = "N", 360
+  for deg, label in pairs(DEGREES_TO_CARDINAL) do
+    local dist = math.abs(degrees - deg)
+    if dist > 180 then dist = 360 - dist end
+    if dist < bestDist then best, bestDist = label, dist end
+  end
+  return best
+end
 local lastGpsFix
 
 local function loadConfig()
@@ -36,6 +61,14 @@ local function loadConfig()
   end
   if type(config.navigation) == "table" and (config.navigation.brakeRadius == nil or tonumber(config.navigation.brakeRadius) == 25) then
     config.navigation.brakeRadius = 75
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and tonumber(config.navigation.arrivalRadius) == 5 then
+    config.navigation.arrivalRadius = 3
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and config.navigation.headingTolerance == nil then
+    config.navigation.headingTolerance = 7
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
@@ -713,7 +746,11 @@ local function promptTarget()
   write("Z: ")
   local z = tonumber(read())
   if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-  saveTarget({ name = name ~= "" and name or nil, x = x, y = y, z = z })
+  write("Final heading N/S/E/W (blank=any): ")
+  local heading = cardinalToDegrees(read())
+  local target = { name = name ~= "" and name or nil, x = x, y = y, z = z }
+  if heading then target.heading = heading end
+  saveTarget(target)
   print("Target saved.")
   sleep(1)
 end
@@ -742,8 +779,11 @@ local function promptWaypoint(config)
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
     position = { x = x, y = y, z = z }
   end
+  write("Final heading N/S/E/W (blank=any): ")
+  local heading = cardinalToDegrees(read())
   local waypoints = loadWaypoints()
   waypoints[name] = { name = name, x = position.x, y = position.y, z = position.z }
+  if heading then waypoints[name].heading = heading end
   saveWaypoints(waypoints)
   print("Waypoint saved.")
   sleep(1)
@@ -771,7 +811,11 @@ local function promptSchedule()
     write("  Z: ")
     local z = tonumber(read())
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-    stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+    write("  Final heading N/S/E/W (blank=any): ")
+    local heading = cardinalToDegrees(read())
+    local stop = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+    if heading then stop.heading = heading end
+    stops[#stops + 1] = stop
   end
   write("Dwell seconds at each stop: ")
   local dwell = math.max(0, tonumber(read()) or 0)
@@ -1139,7 +1183,10 @@ local function server(config, debug)
             for index, stop in ipairs(stops) do
               local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
               if not x or not y or not z then normalized = nil; break end
-              normalized[#normalized + 1] = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+              local normalizedStop = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+              local heading = tonumber(stop.heading)
+              if heading then normalizedStop.heading = heading end
+              normalized[#normalized + 1] = normalizedStop
             end
             if normalized then
               local schedules = loadSchedules()
@@ -1664,7 +1711,8 @@ end
 local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
-  return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+  local heading = target.heading and (" h" .. degreesToCardinal(target.heading)) or ""
+  return string.format("%s%.1f %.1f %.1f%s", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0, heading)
 end
 
 renderMonitorStatus = function(config, state, requested, applied, notes)

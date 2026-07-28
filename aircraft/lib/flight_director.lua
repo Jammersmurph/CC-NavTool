@@ -23,6 +23,13 @@ local function horizontalSpeedAlong(state, heading)
   return velocity.x * heading.x + velocity.z * heading.z
 end
 
+local function headingVector(degrees)
+  degrees = tonumber(degrees)
+  if not degrees then return nil end
+  local radians = math.rad(degrees)
+  return { x = math.sin(radians), y = 0, z = math.cos(radians) }
+end
+
 local function finalTarget(target, navigation)
   local requested = vector(target)
   if not requested then return nil end
@@ -45,7 +52,7 @@ local function stagedTarget(state, target, config)
   local horizontalDistance = math.sqrt(dx * dx + dz * dz)
   local driftSpeed = horizontalSpeed(state)
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
-  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 5)
+  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 3)
   local settleVelocity = math.max(0, tonumber(navigation.horizontalSettleVelocity) or tonumber(navigation.settleVelocity) or 0.5)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
@@ -115,9 +122,10 @@ function Director.arrivalStatus(state, target, config)
   if not position or not targetPosition then return false, nil end
 
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
-  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 5)
+  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 3)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
   local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.5)
+  local headingTolerance = math.rad(math.max(0, tonumber(navigation.headingTolerance) or 7))
 
   local dx = targetPosition.x - position.x
   local dy = targetPosition.y - position.y
@@ -131,8 +139,15 @@ function Director.arrivalStatus(state, target, config)
   end
 
   local horizontalReached = math.sqrt(dx * dx + dz * dz) <= arrivalRadius
+  local targetHeading = headingVector(target and target.heading)
+  local headingReached = true
+  if targetHeading then
+    local headingError = Director.headingError(state and state.heading, targetHeading)
+    headingReached = headingError ~= nil and math.abs(headingError) <= headingTolerance
+  end
   local axesReached = horizontalReached
     and math.abs(dy) <= verticalTolerance
+    and headingReached
 
   return axesReached and settled, {
     xError = dx,
@@ -145,6 +160,8 @@ function Director.arrivalStatus(state, target, config)
     arrivalRadius = arrivalRadius,
     verticalTolerance = verticalTolerance,
     velocityTolerance = velocityTolerance,
+    headingReached = headingReached,
+    headingTolerance = headingTolerance,
     navigationTarget = targetPosition,
   }
 end
@@ -169,7 +186,7 @@ function Director.solve(state, target, config)
   local precisionSpeed = tonumber(navigation.precisionSpeed) or 0.35
   local slowdownRadius = math.max(1, tonumber(navigation.slowdownRadius) or 50)
   local precisionRadius = math.max(0.1, tonumber(navigation.precisionRadius) or 3)
-  local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 5)
+  local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 3)
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
   local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
@@ -185,12 +202,15 @@ function Director.solve(state, target, config)
   local approachSpeedAlong = horizontalSpeedAlong(state, heading)
   local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
   local finalCapture = horizontalDistance <= arrivalRadius
+  local targetHeading = headingVector(requestedTarget and requestedTarget.heading)
+  if targetHeading and horizontalDistance <= brakeRadius then heading = targetHeading end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
     target = target,
     requestedTarget = vector(requestedTarget),
     desiredHeading = heading,
+    finalHeading = targetHeading,
     desiredAltitude = target.y,
     desiredSpeed = desiredSpeed,
     distance = distance,
