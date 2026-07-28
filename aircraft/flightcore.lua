@@ -187,10 +187,7 @@ local function controlTick()
         local finalHeadingReached = true
         if guidance.finalHeading then
           local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
-          local nav = config.navigation or {}
-          local headingTolerance = math.max(0, tonumber(nav.headingTolerance) or 4)
-          if guidance.airshipMode then headingTolerance = math.max(headingTolerance, tonumber(nav.airshipHeadingTolerance) or 15) end
-          headingTolerance = math.rad(headingTolerance)
+          local headingTolerance = math.rad(math.max(0, tonumber((config.navigation or {}).headingTolerance) or 4))
           finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
           if guidance.finalCapture then headingError = finalHeadingError end
         end
