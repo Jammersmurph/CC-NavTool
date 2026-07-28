@@ -172,7 +172,7 @@ function Director.solve(state, target, config)
   local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 5)
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
-  local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 10)
+  local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
   local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
 
   -- Horizontal propulsion must depend only on horizontal error. A large altitude

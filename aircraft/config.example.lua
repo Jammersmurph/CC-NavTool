@@ -33,7 +33,7 @@ return {
     arrivalRadius = 5,
     brakeRadius = 75,
     finalOutputMaximum = 2,
-    finalVerticalRadius = 10,
+    finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,
     stopSpeed = 0.5,
 
