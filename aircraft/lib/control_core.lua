@@ -222,7 +222,14 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
-    if guidance.finalCapture then
+    local finalHeadingReached = true
+    if guidance.finalHeading then
+      local finalHeadingError, finalAlignment = Director.headingError(state.heading, guidance.finalHeading)
+      local headingTolerance = math.rad(math.max(0, tonumber(self.config.navigation and self.config.navigation.headingTolerance) or 4))
+      finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
+      if guidance.finalCapture then headingError, alignment = finalHeadingError, finalAlignment end
+    end
+    if guidance.finalCapture and finalHeadingReached then
       self.heading:reset()
       commands.left, commands.right = 0, 0
     else
@@ -231,7 +238,12 @@ function Control:outputs(state)
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
     local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
-    if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+    local holdDescentForHeading = guidance.finalCapture and guidance.finalHeading and not finalHeadingReached and (guidance.altitudeError or 0) < 0
+    if holdDescentForHeading then
+      self.altitude:reset()
+      commands.up, commands.down = 0, 0
+      notes[#notes + 1] = "descent held for final heading"
+    elseif guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
       self.altitude:reset()
       commands.up, commands.down = 0, 0
     else
