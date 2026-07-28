@@ -57,7 +57,7 @@ local function stagedTarget(state, target, config)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
     or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
-  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 350
+  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 310
   local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
   local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
 
