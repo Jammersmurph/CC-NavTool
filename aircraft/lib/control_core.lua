@@ -229,9 +229,16 @@ function Control:outputs(state)
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
     local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.65
     if not alignment or alignment < minimumAlignment then
-      thrust = 0
       self.speed:reset()
-      notes[#notes + 1] = string.format("forward held: align %.2f < %.2f", alignment or 0, minimumAlignment)
+      if currentHorizontalSpeed > 0.25 then
+        local brake = math.min(1, currentHorizontalSpeed / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12))
+        self:setAxis(commands, -brake, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("align brake %.2f align %.2f", currentHorizontalSpeed, alignment or 0)
+      else
+        thrust = 0
+        self:setAxis(commands, 0, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("forward held: align %.2f < %.2f", alignment or 0, minimumAlignment)
+      end
     end
     if guidance.shouldBrake then
       self.speed:reset()
