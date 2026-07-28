@@ -1301,9 +1301,11 @@ local function server(config, debug)
             local schedule = schedules[active.name]
             if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
               local completed = false
+              local currentIndex = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
               active.dwellIndex = nil
               active.dwellUntil = nil
-              if active.index >= #schedule.stops then
+              active.paused = nil
+              if currentIndex >= #schedule.stops then
                 if schedule.loop then
                   active.index = 1
                 else
@@ -1314,12 +1316,12 @@ local function server(config, debug)
                   completed = true
                 end
               else
-                active.index = active.index + 1
+                active.index = currentIndex + 1
               end
               if not completed then
-                saveActiveSchedule(active)
                 saveTarget(schedule.stops[active.index])
-                if active.paused == true then saveMode("standby") else saveMode("navigate") end
+                saveMode("navigate")
+                saveActiveSchedule(active)
                 response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
               end
             else
