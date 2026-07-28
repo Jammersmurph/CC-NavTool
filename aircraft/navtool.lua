@@ -322,7 +322,13 @@ local function applyAirshipVertical(config, values, winners, applied)
     local maximum = outputMaximum(config, target)
     local neutral = math.floor(maximum / 2 + 0.5)
     local delta = math.max(-neutral, math.min(maximum - neutral, up - down))
-    writeWinner(config, winners, target, values and values.__clear and 0 or neutral + delta)
+    local output = neutral + delta
+    if values and values.__airshipArrived then
+      output = math.max(0, math.min(maximum, tonumber((config.hardware or {}).airshipArrivedPower) or 2))
+    elseif values and values.__clear then
+      output = 0
+    end
+    writeWinner(config, winners, target, output)
   end
   applied.up = up > down and up or 0
   applied.down = down > up and down or 0

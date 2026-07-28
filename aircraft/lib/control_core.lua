@@ -149,6 +149,10 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
     self.positionLateral:reset()
     self.positionVertical:reset()
     self.pulse = {}
+    if type(self.config.hardware) == "table" and self.config.hardware.airshipMode == true then
+      commands.__airshipArrived = true
+      commands.up, commands.down = 0, 0
+    end
     notes[#notes + 1] = "coordinate lock"
     return true
   end
