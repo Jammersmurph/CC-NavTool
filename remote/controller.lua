@@ -404,7 +404,9 @@ local function manualPage()
   local vertical=2
   local function sendVertical()
     local ok,err=request("airship-vertical-control",{strength=vertical})
-    message=ok and ("Vertical analog "..tostring(vertical)) or tostring(err)
+    if ok then message="Vertical analog "..tostring(vertical)
+    elseif tostring(err)=="unsupported command" then message="Update/reboot aircraft NavTool for slider"
+    else message=tostring(err) end
   end
   local function draw()
     clear(colors.black); header("Manual control","[ AIRSHIP ]")
