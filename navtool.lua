@@ -1,5 +1,5 @@
--- CC-NavTool v0.2.0-alpha
-local VERSION = "0.2.0-alpha"
+-- CC-NavTool v0.5.1-nightly
+local VERSION = "0.5.1-nightly"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local STATE_PATH = ROOT .. "/state.lua"
@@ -131,7 +131,7 @@ local function status(config)
   print("CC-NavTool "..VERSION); print("Computer ID: "..os.getComputerID()); print("Telemetry: "..tostring(s.telemetry or "not found")); print("Engaged: "..tostring(s.engaged)); print("Target: "..formatValue(s.target)); print("Position: "..formatValue(s.position)); if s.telemetry then print("Methods: "..table.concat(getMethods(s.telemetry),", ")) end
 end
 local function dashboard(config)
-  while true do term.clear(); term.setCursorPos(1,1); status(config); print(""); print("Telemetry/remote alpha build"); print("Press Q to exit"); local timer=os.startTimer(config.updateInterval or 0.5); local event,p=os.pullEvent(); if event=="key" and p==keys.q then clearOutputs(config); return elseif event~="timer" then os.cancelTimer(timer) end end
+  while true do term.clear(); term.setCursorPos(1,1); status(config); print(""); print("Telemetry/remote nightly build"); print("Press Q to exit"); local timer=os.startTimer(config.updateInterval or 0.5); local event,p=os.pullEvent(); if event=="key" and p==keys.q then clearOutputs(config); return elseif event~="timer" then os.cancelTimer(timer) end end
 end
 
 local command=(args[1] or "run"):lower(); ensureDirectory(ROOT)
