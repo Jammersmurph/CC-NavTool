@@ -71,7 +71,7 @@ end
 
 local launcher = fs.open("/navremote.lua", "w")
 if not launcher then printError("Could not update /navremote.lua"); return end
-launcher.write('shell.run("/navremote/runtime.lua", ...)\n')
+launcher.write('shell.run("/navremote/input_runtime.lua", ...)\n')
 launcher.close()
 print("NavRemote update complete. Config and controller data preserved.")
 print("Advanced Computer mouse controls are enabled. Q goes back; X quits.")
