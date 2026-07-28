@@ -142,6 +142,7 @@ end
 ]]
 
 local oldRequest = [[local function request(command, extra)
+  if localNavToolAvailable() then return localRequest(command, extra) end
   local connection = profile()
   if not connection then return nil, "No aircraft selected" end
   local channel = connection.channel or "cc-navtool"
@@ -165,6 +166,7 @@ local oldRequest = [[local function request(command, extra)
 end]]
 
 local fastRequest = [[local function request(command, extra)
+  if localNavToolAvailable() then return localRequest(command, extra) end
   local connection = profile()
   if not connection then return nil, "No aircraft selected" end
   local channel = connection.channel or "cc-navtool"
