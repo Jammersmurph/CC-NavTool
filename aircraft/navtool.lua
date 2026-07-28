@@ -48,6 +48,10 @@ local function loadConfig()
     config.flightControl.minimumThrustAlignment = 0.985
     config._migrated = true
   end
+  if type(config.flightControl) == "table" and config.flightControl.minimumYawOutput == nil then
+    config.flightControl.minimumYawOutput = 1
+    config._migrated = true
+  end
   if type(config.safety) == "table" and tonumber(config.safety.maximumOutput) == 5 then
     config.safety.maximumOutput = 15
     config._migrated = true

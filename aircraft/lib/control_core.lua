@@ -266,6 +266,12 @@ function Control:outputs(state)
     local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.985
     if not alignment or alignment < minimumAlignment then
       self.speed:reset()
+      if headingError and math.abs(headingError) > math.rad(0.5) and (commands.left or 0) == 0 and (commands.right or 0) == 0 then
+        local yawOutput = math.max(1, math.min(15, tonumber(self.fc.minimumYawOutput) or 1))
+        if headingError > 0 then commands.left = math.min(maximum(self.config, "left"), yawOutput)
+        else commands.right = math.min(maximum(self.config, "right"), yawOutput) end
+        notes[#notes + 1] = "minimum yaw while aligning"
+      end
       if currentHorizontalSpeed > 0.25 then
         local brake = math.min(1, currentHorizontalSpeed / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12))
         self:setAxis(commands, -brake, "forward", "reverse", "speed", false)

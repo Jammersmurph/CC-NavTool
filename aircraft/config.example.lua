@@ -79,6 +79,7 @@ return {
     enabled = true,
     interval = 0.05,
     minimumThrustAlignment = 0.985,
+    minimumYawOutput = 1,
     hoverVelocityGain = 0.18,
     headingPID = {
       kp = 1.6, ki = 0.02, kd = 0.45,
