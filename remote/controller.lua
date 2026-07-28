@@ -383,18 +383,62 @@ local function modesPage()
 end
 
 local function manualPage()
-  clear(colors.black); header("Manual control")
-  writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
-  writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
-  writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
-  writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
-  footer("Movement keys  X: outputs off  Esc: back")
+  local hardwareResponse = request("hardware-list")
+  local airship = hardwareResponse and hardwareResponse.hardware and hardwareResponse.hardware.modes and hardwareResponse.hardware.modes.airship == true
+  if not airship then
+    clear(colors.black); header("Manual control")
+    writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
+    writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
+    writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
+    writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
+    footer("Movement keys  X: outputs off  Esc: back")
+    while true do
+      local _,key=os.pullEvent("key")
+      if key==keys.escape then return end
+      local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
+      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+      if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+    end
+  end
+
+  local vertical=2
+  local function sendVertical()
+    local ok,err=request("airship-vertical-control",{strength=vertical})
+    message=ok and ("Vertical analog "..tostring(vertical)) or tostring(err)
+  end
+  local function draw()
+    clear(colors.black); header("Manual control","[ AIRSHIP ]")
+    writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
+    writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
+    writeAt(3,7,"Vertical analog",colors.cyan)
+    writeAt(22,7,string.format("%02d / 15",vertical),colors.lime)
+    fill(6,9,5,15,colors.gray)
+    for i=0,14 do
+      local y=23-i
+      local active=i<vertical
+      fill(7,y,3,1,active and colors.lime or colors.black)
+    end
+    writeAt(14,9,"15",colors.lightGray); writeAt(14,16,"08",colors.lightGray); writeAt(14,23,"00",colors.lightGray)
+    writeAt(22,10,"Up/Down arrows adjust",colors.lightGray)
+    writeAt(22,11,"Click slider to set",colors.lightGray)
+    writeAt(22,13,"Space sends current value",colors.yellow)
+    if message~="" then writeAt(22,15,message:sub(1,32),colors.yellow) end
+    footer("WASD move  Up/Down/click vertical  Space:set  X:off  Esc:back")
+  end
+  draw()
   while true do
-    local _,key=os.pullEvent("key")
-    if key==keys.escape then return end
-    local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
-    if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
-    if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+    local event,a,b,c=os.pullEvent()
+    if event=="key" then
+      if a==keys.escape then return
+      elseif a==keys.up then vertical=math.min(15,vertical+1); sendVertical(); draw()
+      elseif a==keys.down then vertical=math.max(0,vertical-1); sendVertical(); draw()
+      elseif a==keys.space then sendVertical(); draw()
+      elseif a==keys.x then request("outputs-off"); message="Outputs cleared"; return end
+      local control=a==keys.w and "forward" or a==keys.s and "reverse" or a==keys.a and "left" or a==keys.d and "right"
+      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+    elseif event=="mouse_click" and b>=6 and b<=10 and c>=9 and c<=23 then
+      vertical=math.max(0,math.min(15,24-c)); sendVertical(); draw()
+    end
   end
 end
 
