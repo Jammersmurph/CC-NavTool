@@ -1609,7 +1609,7 @@ local function stopReached(config, state, stop)
   local position = extractVector(state and state.position)
   if not position or type(stop) ~= "table" then return false end
   local horizontalTolerance = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
-  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or tonumber(navigation.coordinateTolerance) or 0.05)
+  local verticalTolerance = math.max(horizontalTolerance, tonumber(navigation.verticalTolerance) or tonumber(navigation.coordinateTolerance) or 0.05)
   local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
   if airshipMode then
     horizontalTolerance = math.max(horizontalTolerance, tonumber(navigation.airshipArrivalRadius) or 6)
