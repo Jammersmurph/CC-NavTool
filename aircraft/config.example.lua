@@ -32,6 +32,7 @@ return {
     settleVelocity = 0.5,
     arrivalRadius = 5,
     brakeRadius = 75,
+    finalOutputMaximum = 2,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:

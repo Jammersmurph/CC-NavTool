@@ -38,6 +38,10 @@ local function loadConfig()
     config.navigation.brakeRadius = 75
     config._migrated = true
   end
+  if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
+    config.navigation.finalOutputMaximum = 2
+    config._migrated = true
+  end
   return config
 end
 

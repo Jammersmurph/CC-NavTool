@@ -171,6 +171,7 @@ function Director.solve(state, target, config)
   local precisionRadius = math.max(0.1, tonumber(navigation.precisionRadius) or 3)
   local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 5)
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
+  local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
 
   -- Horizontal propulsion must depend only on horizontal error. A large altitude
   -- difference must never produce forward thrust after X/Z have been acquired.
@@ -204,6 +205,7 @@ function Director.solve(state, target, config)
     horizontalTolerance = stage and stage.horizontalTolerance or nil,
     arrivalRadius = arrivalRadius,
     brakeRadius = brakeRadius,
+    finalOutputMaximum = finalOutputMaximum,
     shouldBrake = shouldBrake,
     finalCapture = finalCapture,
     approachSpeedAlong = approachSpeedAlong,
