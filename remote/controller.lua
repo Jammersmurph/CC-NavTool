@@ -257,6 +257,10 @@ local function createPath(data,kind)
   local item={name=name,stops=stops}
   if kind=="Schedule" then item.loop=confirm("Loop schedule"); item.dwell=tonumber(prompt("Dwell seconds","0")) or 0 end
   local map=kind=="Route" and data.routes or data.schedules
+  if kind=="Schedule" then
+    local ok,err=request("save-schedule",{schedule=item})
+    if not ok then message="Schedule save failed: "..tostring(err); return end
+  end
   map[name]=item; saveData(data)
 end
 
@@ -275,7 +279,7 @@ local function schedulePage(data)
     local response,err=request("status")
     local status=response and response.data or {}
     local active=status.activeSchedule
-    local schedules=data.schedules or {}
+    local schedules=status.schedules or data.schedules or {}
     local names=Storage.names(schedules)
     local w,h=term.getSize()
     clear(colors.black); header("Schedules")
@@ -333,6 +337,7 @@ local function schedulePage(data)
     elseif key==keys.r then
       local name=prompt("Schedule to run")
       if name and schedules[name] then
+        request("save-schedule",{schedule=schedules[name]})
         local r,e=request("run-schedule",{name=name})
         message=r and "Schedule started: "..name or e
       elseif name then message="Not found: "..name end
