@@ -95,6 +95,27 @@ function Patch.apply(source)
           saveTarget(request.target)]]
   end, 1)
 
+  source = source:gsub('  saveTarget%(schedule%.stops%[1%]%)\n  saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[  LocationNetwork.stopFollow()
+  saveTarget(schedule.stops[1])
+  saveMode("navigate")]]
+  end, 1)
+
+  source = source:gsub('  saveTarget%(schedule%.stops%[index%]%)\n  saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[  LocationNetwork.stopFollow()
+  saveTarget(schedule.stops[index])
+  saveMode("navigate")]]
+  end, 1)
+
+  source = source:gsub('        saveTarget%(stop%)\n        saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[        LocationNetwork.stopFollow()
+        saveTarget(stop)
+        saveMode("navigate")]]
+  end, 2)
+
   source = source:gsub("local function interface%(config%)", function()
     count = count + 1
     return [[local function runService(config, debug)
