@@ -183,6 +183,7 @@ local injected = table.concat({
 local anchor = "if count < 4 then"
 local at = runtimeSource:find(anchor, 1, true)
 if not at then anchor = "if count ~= 5 then"; at = runtimeSource:find(anchor, 1, true) end
+if not at then anchor = "local program,loadErr=load(source"; at = runtimeSource:find(anchor, 1, true) end
 if not at then printError("NavRemote input runtime could not find controller patch anchor."); return end
 runtimeSource = runtimeSource:sub(1, at - 1) .. injected .. "\n" .. runtimeSource:sub(at)
 
