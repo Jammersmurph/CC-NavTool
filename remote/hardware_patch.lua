@@ -113,6 +113,20 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local okSet,setErr=request("monitor-set",{monitor=monitor})
     message=okSet and (monitor=="clear" and "Monitor disabled" or "Monitor set: "..tostring(monitor)) or tostring(setErr)
   end
+  local function toggleAirship(airship)
+    local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+    if not okMode and tostring(e) == "unsupported command" then
+      okMode,e=request("hardware-airship",{mode="airship",enabled=not airship})
+    end
+    if okMode and okMode.hardware then hardware=okMode.hardware end
+    if okMode then
+      message="Airship mode "..(airship and "off" or "on")
+    elseif tostring(e) == "unsupported command" then
+      message="Update/reboot aircraft NavTool for airship mode"
+    else
+      message=tostring(e)
+    end
+  end
   while true do
     local response,err=request("hardware-list")
     local hardware=response and response.hardware or {assignments={},relays={}}
@@ -162,9 +176,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         deleteAssignment(hardware)
       end
       if a==keys.v then
-        local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
-        if okMode and okMode.hardware then hardware=okMode.hardware end
-        message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
+        toggleAirship(airship)
       end
       if a==keys.m then
         configureMonitor()
@@ -184,9 +196,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     elseif event=="mouse_click" and b>=24 and b<=41 and c==buttonY then
       deleteAssignment(hardware)
     elseif event=="mouse_click" and b>=3 and b<=26 and c==buttonY+2 then
-      local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
-      if okMode and okMode.hardware then hardware=okMode.hardware end
-      message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
+      toggleAirship(airship)
     elseif event=="mouse_click" and b>=3 and b<=47 and rowControl[c] then
       local clicked=rowControl[c]
       local control=controls[clicked]

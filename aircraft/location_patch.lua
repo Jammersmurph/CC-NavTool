@@ -52,7 +52,7 @@ function Patch.apply(source)
         elseif request.command == "hardware-test" then
           local okTest, result = Hardware.test(config, request.control, request.strength)
           response = okTest and { ok = true } or { ok = false, error = result }
-        elseif request.command == "hardware-mode" then
+        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
           config.hardware = type(config.hardware) == "table" and config.hardware or {}
           if tostring(request.mode or "") == "airship" then
             config.hardware.airshipMode = request.enabled == true
