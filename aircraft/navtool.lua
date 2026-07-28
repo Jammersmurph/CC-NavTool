@@ -298,18 +298,48 @@ local function outputTargets(output)
   return {}
 end
 
+local function writeWinner(config, winners, target, strength)
+  if type(target) ~= "table" or not target.side then return end
+  local ok, value = outputValue(config, target, strength)
+  if not ok then return end
+  local current = winners[target.side]
+  if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+end
+
+local function applyAirshipVertical(config, values, winners, applied)
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local upTargets, downTargets = outputTargets(outputs.up), outputTargets(outputs.down)
+  if #upTargets == 0 and #downTargets == 0 then return false end
+
+  local up = tonumber(values and values.up) or 0
+  local down = tonumber(values and values.down) or 0
+
+  local verticalTargets = {}
+  for _, target in ipairs(upTargets) do verticalTargets[#verticalTargets + 1] = target end
+  for _, target in ipairs(downTargets) do verticalTargets[#verticalTargets + 1] = target end
+
+  for _, target in ipairs(verticalTargets) do
+    local maximum = outputMaximum(config, target)
+    local neutral = math.floor(maximum / 2 + 0.5)
+    local delta = math.max(-neutral, math.min(maximum - neutral, up - down))
+    writeWinner(config, winners, target, values and values.__clear and 0 or neutral + delta)
+  end
+  applied.up = up > down and up or 0
+  applied.down = down > up and down or 0
+  applied.airshipVertical = true
+  return true
+end
+
 local function applyOutputValues(config, values)
   local winners = {}
   local applied = {}
+  local airshipVertical = type(config.hardware) == "table" and config.hardware.airshipMode == true
+  if airshipVertical then applyAirshipVertical(config, values, winners, applied) end
   for control, output in pairs(config.outputs or {}) do
+    if not (airshipVertical and (control == "up" or control == "down")) then
     for _, target in ipairs(outputTargets(output)) do
-      if type(target) == "table" and target.side then
-        local ok, value = outputValue(config, target, values and values[control] or 0)
-        if ok then
-          local current = winners[target.side]
-          if not current or value > current.value then winners[target.side] = { target = target, value = value } end
-        end
-      end
+      writeWinner(config, winners, target, values and values[control] or 0)
+    end
     end
   end
   for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
@@ -326,6 +356,12 @@ local function applyOutputValues(config, values)
 end
 
 local function setOutput(config, control, strength)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true and (control == "up" or control == "down") then
+    local values = { up = 0, down = 0 }
+    values[control] = tonumber(strength) or 0
+    local applied = applyOutputValues(config, values)
+    return true, applied[control] or 0
+  end
   local output = config.outputs and config.outputs[control]
   if type(output) ~= "table" then return false end
   local targets = type(output.targets) == "table" and output.targets or { output }
@@ -390,6 +426,7 @@ local function makeOutputController(config)
       end
       applied[control] = value or 0
     end
+    if forceClear then applied.__clear = true end
     return applyOutputs(config, applied)
   end
 end

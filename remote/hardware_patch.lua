@@ -139,11 +139,14 @@ local hardwarePageSource = [==[local function hardwarePage(data)
         end
       end
     end
+    local airship=hardware.modes and hardware.modes.airship == true
     local buttonY=math.min(y+1,15)
     fill(3,buttonY,18,1,colors.blue); writeAt(5,buttonY,"ADD ASSIGNMENT",colors.white,colors.blue)
     fill(24,buttonY,18,1,colors.red); writeAt(29,buttonY,"DELETE",colors.white,colors.red)
+    fill(3,buttonY+2,24,1,airship and colors.lime or colors.gray)
+    writeAt(5,buttonY+2,"AIRSHIP MODE: "..(airship and "ON" or "OFF"),airship and colors.black or colors.white,airship and colors.lime or colors.gray)
     writeAt(3,buttonY+1,"Relays visible: "..tostring(#(hardware.relays or {})),colors.lightGray)
-    footer("Number: edit  A:add  D:delete  M:monitor  Q:back")
+    footer("Number: edit  A:add  D:delete  V:airship  M:monitor  Q:back")
     local event,a,b,c=os.pullEvent()
     local index
     local forceAdd=false
@@ -156,6 +159,10 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       end
       if a==keys.d then
         deleteAssignment(hardware)
+      end
+      if a==keys.v then
+        local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+        message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
       end
       if a==keys.m then
         configureMonitor()
@@ -174,6 +181,9 @@ local hardwarePageSource = [==[local function hardwarePage(data)
       if chosen then index=chosen; forceAdd=true end
     elseif event=="mouse_click" and b>=24 and b<=41 and c==buttonY then
       deleteAssignment(hardware)
+    elseif event=="mouse_click" and b>=3 and b<=26 and c==buttonY+2 then
+      local okMode,e=request("hardware-mode",{mode="airship",enabled=not airship})
+      message=okMode and ("Airship mode "..(airship and "off" or "on")) or tostring(e)
     elseif event=="mouse_click" and b>=3 and b<=47 and rowControl[c] then
       local clicked=rowControl[c]
       local control=controls[clicked]

@@ -155,6 +155,7 @@ local function clearTarget(output)
 end
 
 function Hardware.describe(config)
+  config.hardware = type(config.hardware) == "table" and config.hardware or {}
   local assignments = {}
   for _, control in ipairs(CONTROLS) do
     local output = type(config.outputs) == "table" and config.outputs[control] or nil
@@ -179,7 +180,18 @@ function Hardware.describe(config)
       targets = described,
     }
   end
-  return { relays = Hardware.relays(), assignments = assignments, sides = SIDES, controls = CONTROLS }
+  return {
+    relays = Hardware.relays(), assignments = assignments, sides = SIDES, controls = CONTROLS,
+    modes = { airship = config.hardware.airshipMode == true },
+  }
+end
+
+function Hardware.setMode(config, request)
+  config.hardware = type(config.hardware) == "table" and config.hardware or {}
+  local mode = tostring(request.mode or "")
+  if mode ~= "airship" then return false, "invalid hardware mode" end
+  config.hardware.airshipMode = request.enabled == true
+  return true, Hardware.describe(config)
 end
 
 function Hardware.assign(config, request)
