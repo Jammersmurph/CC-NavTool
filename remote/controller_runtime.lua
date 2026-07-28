@@ -392,8 +392,8 @@ end,1)
 
 source=source:gsub("modesPage%(%)", "modesPage(data)")
 
-if count < 4 then
-  printError("NavRemote pre-test patch failed: expected at least 4 sections, found "..tostring(count))
+if count ~= 5 then
+  printError("NavRemote pre-test patch failed: expected 5 sections, found "..tostring(count))
   return
 end
 
