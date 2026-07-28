@@ -310,20 +310,52 @@ local function manualPage()
 end
 
 local function dashboard(data)
-  local status,err=refresh(data)
+  local response,err=request("status")
+  local status=response and response.data or data.lastStatus
   clear(colors.black); header("Dashboard",err and "[ OFFLINE ]" or "[ SABLE ONLINE ]")
   status=status or {}; local p=status.position or {}; local v=status.velocity or {}
   writeAt(3,3,"Aircraft",colors.cyan); writeAt(15,3,config.activeProfile or "none")
   writeAt(3,4,"Host",colors.cyan); writeAt(15,4,(profile() and profile().host) or "none")
-  writeAt(3,6,"Mode"); writeAt(15,6,status.mode or "unknown",colors.lime)
-  writeAt(3,7,"Target"); writeAt(15,7,status.target and (status.target.name or "coordinates") or "none",colors.yellow)
-  writeAt(3,9,"Position",colors.cyan)
-  writeAt(3,10,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,10,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,10,string.format("Z %8.1f",tonumber(p.z) or 0))
-  writeAt(3,12,"Velocity",colors.cyan)
-  writeAt(3,13,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,13,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,13,string.format("Z %8.2f",tonumber(v.z) or 0))
-  writeAt(3,15,"Local library",colors.cyan)
-  writeAt(3,16,"Targets "..#Storage.names(data.targets)); writeAt(18,16,"Routes "..#Storage.names(data.routes)); writeAt(32,16,"Schedules "..#Storage.names(data.schedules))
-  waitBack("R: refresh  Esc: back")
+  writeAt(3,5,"Telemetry",colors.cyan); writeAt(15,5,status.telemetry and "ONLINE" or "OFFLINE",status.telemetry and colors.lime or colors.red)
+  writeAt(3,6,"Source",colors.cyan); writeAt(15,6,tostring(status.source or "none"))
+  writeAt(3,8,"Mode"); writeAt(15,8,status.mode or "unknown",colors.lime)
+  local heading = status.heading
+  local headingDeg = heading and heading.x and math.deg(math.atan2(heading.x, heading.z or 0))
+  local headingText = headingDeg and (string.format("%.0f", headingDeg) .. " " .. degreesToCardinal(headingDeg)) or "n/a"
+  writeAt(3,9,"Heading",colors.cyan); writeAt(15,9,headingText)
+  writeAt(3,10,"Target"); writeAt(15,10,status.target and (status.target.name or "coords") or "none",colors.yellow)
+  if status.target then
+    local tx,ty,tz=tonumber(status.target.x) or 0,tonumber(status.target.y) or 0,tonumber(status.target.z) or 0
+    writeAt(15,11,string.format("%.1f %.1f %.1f",tx,ty,tz),colors.lightGray)
+  end
+  if status.distanceToTarget then writeAt(3,12,"Distance",colors.cyan); writeAt(15,12,string.format("%.1f blocks",status.distanceToTarget)) end
+  writeAt(3,14,"Position",colors.cyan)
+  writeAt(3,15,string.format("X %8.1f",tonumber(p.x) or 0)); writeAt(18,15,string.format("Y %8.1f",tonumber(p.y) or 0)); writeAt(33,15,string.format("Z %8.1f",tonumber(p.z) or 0))
+  writeAt(3,16,"Velocity",colors.cyan)
+  writeAt(3,17,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,17,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,17,string.format("Z %8.2f",tonumber(v.z) or 0))
+  local active=status.activeSchedule
+  if active then
+    writeAt(3,19,"Active Schedule",colors.cyan)
+    writeAt(15,19,tostring(active.name or "?").." stop "..tostring(active.index or 1),colors.lime)
+  end
+  writeAt(3,21,"Monitor",colors.cyan)
+  writeAt(15,21,status.peripheral or status.sublevel or "none")
+  local help="R: refresh  Esc: back"
+  if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
+  footer(help)
+  while true do
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+      local s,e=refresh(data); if not s and e then message=e end; return dashboard(data)
+    elseif key==keys.s and active then
+      local r,e=request("skip-stop"); message=r and "Stop skipped" or e; return dashboard(data)
+    elseif key==keys.p and active then
+      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e; return dashboard(data)
+    elseif key==keys.x and active then
+      local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e; return dashboard(data)
+    end
+  end
 end
 
 local function profilesPage()

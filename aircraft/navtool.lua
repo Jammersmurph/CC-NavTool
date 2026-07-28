@@ -1220,6 +1220,50 @@ local function server(config, debug)
           saveMode("standby")
           clearOutputs(config)
           response = { ok = true }
+        elseif request.command == "skip-stop" then
+          local active = loadActiveSchedule()
+          if active then
+            local schedules = loadSchedules()
+            local schedule = schedules[active.name]
+            if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
+              active.dwellIndex = nil
+              active.dwellUntil = nil
+              if active.index >= #schedule.stops then
+                if schedule.loop then
+                  active.index = 1
+                else
+                  saveActiveSchedule(nil)
+                  saveMode("standby")
+                  clearOutputs(config)
+                  response = { ok = true, status = "complete" }
+                end
+              else
+                active.index = active.index + 1
+              end
+              if response.ok == nil then
+                saveActiveSchedule(active)
+                saveTarget(schedule.stops[active.index])
+                saveMode("navigate")
+                response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
+              end
+            else
+              response = { ok = false, error = "no active schedule" }
+            end
+          else
+            response = { ok = false, error = "no active schedule" }
+          end
+        elseif request.command == "pause-schedule" then
+          saveMode("standby")
+          pendingClearOutputs = true
+          response = { ok = true }
+        elseif request.command == "resume-schedule" then
+          local active = loadActiveSchedule()
+          if active then
+            saveMode("navigate")
+            response = { ok = true }
+          else
+            response = { ok = false, error = "no active schedule" }
+          end
         elseif request.command == "stop" or request.command == "outputs-off" then
           manualUntil = {}
           automationOutputController(nil, true)
