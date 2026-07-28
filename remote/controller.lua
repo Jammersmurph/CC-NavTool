@@ -150,8 +150,8 @@ local function iconPosition(index)
   local columns=w>=45 and 4 or 3
   local col=(index-1)%columns
   local row=math.floor((index-1)/columns)
-  local spacing=11
-  local start=math.max(2,math.floor((w-(columns*8+(columns-1)*(spacing-8)))/2)+1)
+  local spacing=12
+  local start=math.max(2,math.floor((w-(columns*9+(columns-1)*(spacing-9)))/2)+1)
   return start+col*spacing,3+row*5
 end
 
@@ -160,13 +160,13 @@ local function drawIcon(index,icon)
   local active=index==selected
   local bg=active and colors.lightGray or colors.green
   local fg=active and colors.black or colors.white
-  fill(x-1,y-1,8,5,bg)
+  fill(x-1,y-1,9,5,bg)
   for row,line in ipairs(icon.glyph) do
     for col=1,#line do
       if line:sub(col,col)=="#" then writeAt(x+col-1,y+row-1," ",fg,fg) end
     end
   end
-  writeAt(x-1,y+3,icon.label:sub(1,10),fg,bg)
+  writeAt(x-1,y+3,icon.label:sub(1,9),fg,bg)
 end
 
 local function desktop()
