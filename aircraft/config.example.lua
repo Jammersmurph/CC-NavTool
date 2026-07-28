@@ -30,7 +30,7 @@ return {
     coordinateTolerance = 0.05,
     verticalTolerance = 0.05,
     settleVelocity = 0.5,
-    arrivalRadius = 3,
+    arrivalRadius = 1,
     brakeRadius = 75,
     headingTolerance = 7,
     finalOutputMaximum = 2,

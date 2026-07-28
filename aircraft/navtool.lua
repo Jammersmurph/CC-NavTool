@@ -63,8 +63,8 @@ local function loadConfig()
     config.navigation.brakeRadius = 75
     config._migrated = true
   end
-  if type(config.navigation) == "table" and tonumber(config.navigation.arrivalRadius) == 5 then
-    config.navigation.arrivalRadius = 3
+  if type(config.navigation) == "table" and (tonumber(config.navigation.arrivalRadius) or 0) > 1 then
+    config.navigation.arrivalRadius = 1
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.headingTolerance == nil then
