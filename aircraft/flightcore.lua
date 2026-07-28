@@ -232,6 +232,9 @@ local function controlTick()
           speedPID:reset()
         else
           thrust = math.max(0, thrust)
+          if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
+            thrust = math.max(thrust, tonumber(fc.cruiseThrust) or 0.45)
+          end
           splitAxis(thrust, "forward", "reverse", commands)
         end
         if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius then

@@ -287,6 +287,9 @@ function Control:outputs(state)
       notes[#notes + 1] = string.format("final capture %.1f", guidance.horizontalDistance or 0)
     else
       thrust = math.max(0, thrust)
+      if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
+        thrust = math.max(thrust, tonumber(self.fc.cruiseThrust) or 0.45)
+      end
       self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
     end
     if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius then
