@@ -125,7 +125,7 @@ function Director.arrivalStatus(state, target, config)
   local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 1)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
   local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.5)
-  local headingTolerance = math.rad(math.max(0, tonumber(navigation.headingTolerance) or 7))
+  local headingTolerance = math.rad(math.max(0, tonumber(navigation.headingTolerance) or 4))
 
   local dx = targetPosition.x - position.x
   local dy = targetPosition.y - position.y

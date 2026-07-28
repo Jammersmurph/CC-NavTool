@@ -32,7 +32,7 @@ return {
     settleVelocity = 0.5,
     arrivalRadius = 1,
     brakeRadius = 75,
-    headingTolerance = 7,
+    headingTolerance = 4,
     finalOutputMaximum = 2,
     finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,
