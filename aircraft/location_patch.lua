@@ -29,7 +29,10 @@ function Patch.apply(source)
   source = source:gsub('        if request%.command == "ping" then', function()
     count = count + 1
     return [[        if request.command == "hardware-list" then
-          response = { ok = true, hardware = Hardware.describe(config) }
+          local description = Hardware.describe(config)
+          description.modes = description.modes or {}
+          description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+          response = { ok = true, hardware = description }
         elseif request.command == "hardware-assign" then
           local okAssign, result = Hardware.assign(config, request)
           if okAssign then
@@ -50,9 +53,17 @@ function Patch.apply(source)
           local okTest, result = Hardware.test(config, request.control, request.strength)
           response = okTest and { ok = true } or { ok = false, error = result }
         elseif request.command == "hardware-mode" then
-          local okMode, result = Hardware.setMode(config, request)
-          if okMode then saveConfig(config); response = { ok = true, hardware = result }
-          else response = { ok = false, error = result } end
+          config.hardware = type(config.hardware) == "table" and config.hardware or {}
+          if tostring(request.mode or "") == "airship" then
+            config.hardware.airshipMode = request.enabled == true
+            saveConfig(config)
+            local description = Hardware.describe(config)
+            description.modes = description.modes or {}
+            description.modes.airship = config.hardware.airshipMode == true
+            response = { ok = true, hardware = description }
+          else
+            response = { ok = false, error = "invalid hardware mode" }
+          end
         elseif request.command == "location-list" then
           response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following(), tracking = LocationNetwork.status() }
         elseif request.command == "follow-remote" then
