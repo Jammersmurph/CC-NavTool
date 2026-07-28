@@ -18,6 +18,13 @@ end
 local runtimeSource, err = readAll(SOURCE)
 if not runtimeSource then printError(err); return end
 
+local okHardwarePatch, patchedSource = pcall(function()
+  return dofile(ROOT .. "/hardware_patch.lua").apply(runtimeSource)
+end)
+if okHardwarePatch and type(patchedSource) == "string" then
+  runtimeSource = patchedSource
+end
+
 local injected = table.concat({
   '-- NavRemote input compatibility is applied to the generated controller source.',
   'source = source:gsub("Esc: back", "Q: back")',
