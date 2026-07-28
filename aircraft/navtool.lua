@@ -8,6 +8,31 @@ local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
+
+local CARDINAL_TO_DEGREES = {
+  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
+}
+local DEGREES_TO_CARDINAL = {
+  [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
+  [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
+}
+
+local function cardinalToDegrees(input)
+  if input == nil or input == "" then return nil end
+  local key = tostring(input):lower()
+  return CARDINAL_TO_DEGREES[key]
+end
+
+local function degreesToCardinal(degrees)
+  degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
+  local best, bestDist = "N", 360
+  for deg, label in pairs(DEGREES_TO_CARDINAL) do
+    local dist = math.abs(degrees - deg)
+    if dist > 180 then dist = 360 - dist end
+    if dist < bestDist then best, bestDist = label, dist end
+  end
+  return best
+end
 local lastGpsFix
 
 local function loadConfig()
@@ -16,6 +41,46 @@ local function loadConfig()
   if type(config.network) == "table" and config.network.channel == nil and config.network.protocol ~= nil then
     config.network.channel = config.network.protocol
     config.network.protocol = nil
+    config._migrated = true
+  end
+  if type(config.flightControl) == "table" and tonumber(config.flightControl.minimumThrustAlignment) == 0.75 then
+    config.flightControl.minimumThrustAlignment = 0.65
+    config._migrated = true
+  end
+  if type(config.safety) == "table" and tonumber(config.safety.maximumOutput) == 5 then
+    config.safety.maximumOutput = 15
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.cruiseAltitude) or 0) ~= 310 then
+    config.navigation.cruiseAltitude = 310
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and tonumber(config.navigation.settleVelocity) == 0.05 then
+    config.navigation.settleVelocity = 0.5
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and (config.navigation.brakeRadius == nil or tonumber(config.navigation.brakeRadius) == 25) then
+    config.navigation.brakeRadius = 75
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.arrivalRadius) or 0) > 1 then
+    config.navigation.arrivalRadius = 1
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.headingTolerance) or 0) > 4 then
+    config.navigation.headingTolerance = 4
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
+    config.navigation.finalOutputMaximum = 2
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 10) then
+    config.navigation.finalVerticalRadius = 25
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and config.navigation.finalVerticalOutputMaximum == nil then
+    config.navigation.finalVerticalOutputMaximum = 2
     config._migrated = true
   end
   return config
@@ -203,17 +268,61 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function setOutputTarget(config, output, strength)
+local function outputValue(config, output, strength)
   if type(output) ~= "table" or not output.side then return false end
   local maximum = outputMaximum(config, output)
   local value = math.max(0, math.min(maximum, math.floor(tonumber(strength) or 0)))
   if output.inverted and value > 0 then value = math.max(1, maximum - value + 1) end
+  return true, value
+end
+
+local function writeOutputTarget(output, value)
   if output.analog == false then
     redstone.setOutput(output.side, value > 0)
   else
     redstone.setAnalogOutput(output.side, value)
   end
+end
+
+local function setOutputTarget(config, output, strength)
+  local ok, value = outputValue(config, output, strength)
+  if not ok then return false end
+  writeOutputTarget(output, value)
   return true, value
+end
+
+local function outputTargets(output)
+  if type(output) ~= "table" then return {} end
+  if type(output.targets) == "table" then return output.targets end
+  if output.side then return { output } end
+  return {}
+end
+
+local function applyOutputValues(config, values)
+  local winners = {}
+  local applied = {}
+  for control, output in pairs(config.outputs or {}) do
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side then
+        local ok, value = outputValue(config, target, values and values[control] or 0)
+        if ok then
+          local current = winners[target.side]
+          if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+        end
+      end
+    end
+  end
+  for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
+  for control, output in pairs(config.outputs or {}) do
+    local value = 0
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side and winners[target.side] then
+        value = math.max(value, winners[target.side].value)
+      end
+    end
+    applied[control] = value
+  end
+  return applied
 end
 
 local function setOutput(config, control, strength)
@@ -234,13 +343,8 @@ local function setOutput(config, control, strength)
 end
 
 local function applyOutputs(config, requested)
-  local applied = {}
-  for control in pairs(config.outputs or {}) do
-    local ok, _, value = pcall(setOutput, config, control, requested[control] or 0)
-    if not ok then value = 0 end
-    applied[control] = value or 0
-  end
-  return applied
+  local ok, applied = pcall(applyOutputValues, config, requested or {})
+  return ok and applied or {}
 end
 
 local function makeOutputController(config)
@@ -249,6 +353,12 @@ local function makeOutputController(config)
   local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
   local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
   local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  if type(config.flightControl) == "table" and config.flightControl.enabled ~= false then
+    holdAfter, pulseReleaseGrace, holdReleaseGrace = 0, 0, 0
+  end
+  local pulseAutomation = automation.pulseAutomationOutputs ~= false
+  local outputPulsePeriod = math.max(0.05, tonumber(automation.outputPulsePeriod) or 0.4)
+  local outputPulseWidth = math.max(0.05, math.min(outputPulsePeriod, tonumber(automation.outputPulseWidth) or 0.3))
   return function(requested, forceClear)
     requested = requested or {}
     local applied = {}
@@ -266,6 +376,10 @@ local function makeOutputController(config)
         state.last = now
         state.value = requestedValue
         if now - state.since >= holdAfter then state.holding = true end
+        if pulseAutomation then
+          local phase = (now - state.since) % outputPulsePeriod
+          if phase >= outputPulseWidth then value = 0 end
+        end
       elseif state then
         local grace = state.holding and holdReleaseGrace or pulseReleaseGrace
         if now - state.last <= grace then
@@ -274,11 +388,9 @@ local function makeOutputController(config)
           active[control] = nil
         end
       end
-      local ok, _, appliedValue = pcall(setOutput, config, control, value)
-      if not ok then appliedValue = 0 end
-      applied[control] = appliedValue or 0
+      applied[control] = value or 0
     end
-    return applied
+    return applyOutputs(config, applied)
   end
 end
 
@@ -400,6 +512,19 @@ local function rotateByQuaternion(vector, q)
   }
 end
 
+local function rotateLocalYaw(vector, degrees)
+  vector = extractVector(vector)
+  degrees = tonumber(degrees) or 0
+  if not vector or degrees == 0 then return vector end
+  local radians = math.rad(degrees)
+  local sinValue, cosValue = math.sin(radians), math.cos(radians)
+  return {
+    x = vector.x * cosValue + vector.z * sinValue,
+    y = vector.y,
+    z = vector.z * cosValue - vector.x * sinValue,
+  }
+end
+
 local function headingFromPose(config, pose)
   if type(pose) ~= "table" then return nil end
   local direct = extractVector(pose.forward or pose.facing or pose.direction or (type(pose.rotation) == "table" and (pose.rotation.forward or pose.rotation.facing or pose.rotation.direction)))
@@ -409,6 +534,7 @@ local function headingFromPose(config, pose)
   if q then
     local orientation = type(config.orientation) == "table" and config.orientation or {}
     local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = 1 }
+    localForward = rotateLocalYaw(localForward, orientation.yawOffset)
     local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
     if rotated then return rotated, "pose-quaternion" end
   end
@@ -620,7 +746,11 @@ local function promptTarget()
   write("Z: ")
   local z = tonumber(read())
   if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-  saveTarget({ name = name ~= "" and name or nil, x = x, y = y, z = z })
+  write("Final heading N/S/E/W (blank=any): ")
+  local heading = cardinalToDegrees(read())
+  local target = { name = name ~= "" and name or nil, x = x, y = y, z = z }
+  if heading then target.heading = heading end
+  saveTarget(target)
   print("Target saved.")
   sleep(1)
 end
@@ -649,8 +779,11 @@ local function promptWaypoint(config)
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
     position = { x = x, y = y, z = z }
   end
+  write("Final heading N/S/E/W (blank=any): ")
+  local heading = cardinalToDegrees(read())
   local waypoints = loadWaypoints()
   waypoints[name] = { name = name, x = position.x, y = position.y, z = position.z }
+  if heading then waypoints[name].heading = heading end
   saveWaypoints(waypoints)
   print("Waypoint saved.")
   sleep(1)
@@ -678,7 +811,11 @@ local function promptSchedule()
     write("  Z: ")
     local z = tonumber(read())
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-    stops[#stops + 1] = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+    write("  Final heading N/S/E/W (blank=any): ")
+    local heading = cardinalToDegrees(read())
+    local stop = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
+    if heading then stop.heading = heading end
+    stops[#stops + 1] = stop
   end
   write("Dwell seconds at each stop: ")
   local dwell = math.max(0, tonumber(read()) or 0)
@@ -1046,7 +1183,10 @@ local function server(config, debug)
             for index, stop in ipairs(stops) do
               local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
               if not x or not y or not z then normalized = nil; break end
-              normalized[#normalized + 1] = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+              local normalizedStop = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+              local heading = tonumber(stop.heading)
+              if heading then normalizedStop.heading = heading end
+              normalized[#normalized + 1] = normalizedStop
             end
             if normalized then
               local schedules = loadSchedules()
@@ -1165,6 +1305,21 @@ local function status(config)
   print("Schedules: " .. tostring(#(state.scheduleNames or {})))
   print("Active schedule: " .. textutils.serialize(state.activeSchedule))
   print("Networking: " .. ((config.network and config.network.enabled) and "enabled" or "disabled"))
+end
+
+local function setOrientationOffset(config, value)
+  local offset = tonumber(value)
+  if not offset then
+    print("Current orientation yawOffset: " .. tostring(config.orientation and config.orientation.yawOffset or 0))
+    print("Usage: navtool orientation <degrees>")
+    print("Try 90 or -90 if the craft thinks it is pointed 90 degrees off target.")
+    return
+  end
+  config.orientation = type(config.orientation) == "table" and config.orientation or {}
+  config.orientation.yawOffset = offset
+  saveConfig(config)
+  print("Orientation yawOffset set to " .. tostring(offset) .. " degrees.")
+  print("Restart navtool for the running flight controller to use it.")
 end
 
 local function diagnose(config)
@@ -1556,7 +1711,8 @@ end
 local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
-  return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+  local heading = target.heading and (" h" .. degreesToCardinal(target.heading)) or ""
+  return string.format("%s%.1f %.1f %.1f%s", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0, heading)
 end
 
 renderMonitorStatus = function(config, state, requested, applied, notes)
@@ -1591,7 +1747,8 @@ renderMonitorStatus = function(config, state, requested, applied, notes)
     line(monitor, 2, y, "Schedule: ", tostring(state.activeSchedule.name) .. " #" .. tostring(state.activeSchedule.index)); y = y + 1
   end
   y = y + 1
-  line(monitor, 2, y, "Outputs: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  line(monitor, 2, y, "Applied: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", applied.forward or 0, applied.reverse or 0, applied.left or 0, applied.right or 0, applied.up or 0, applied.down or 0)); y = y + 1
+  line(monitor, 2, y, "Request: ", string.format("F%s Rev%s L%s Rt%s U%s D%s", requested.forward or 0, requested.reverse or 0, requested.left or 0, requested.right or 0, requested.up or 0, requested.down or 0)); y = y + 1
   for _, note in ipairs(notes) do
     if y > height then break end
     writeAt(monitor, 2, y, tostring(note):sub(1, math.max(1, width - 2)))
@@ -1767,11 +1924,12 @@ if config._migrated then config._migrated = nil; saveConfig(config) end
 if command == "setup" or command == "onboarding" then onboarding(config, true); return end
 config = onboarding(config, false)
 if command == "status" then status(config)
+elseif command == "orientation" or command == "yaw-offset" then setOrientationOffset(config, args[2])
 elseif command == "diagnose" then diagnose(config)
 elseif command == "server" then server(config, args[2] == "debug")
 elseif command == "ui" or command == "run" then interface(config)
 elseif command == "automate" then automate(config)
 elseif command == "outputs-off" or command == "stop" then clearOutputs(config); print("Outputs cleared.")
 else
-  print("Usage: navtool ui|status|diagnose|server|automate|setup|update|uninstall|outputs-off|version")
+  print("Usage: navtool ui|status|diagnose|orientation|server|automate|setup|update|uninstall|outputs-off|version")
 end

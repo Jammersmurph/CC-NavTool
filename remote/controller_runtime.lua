@@ -31,6 +31,11 @@ local function ageText(ms)
   return string.format("%.1fs", ms / 1000)
 end
 
+local function loadBeaconStatus()
+  local ok, value = pcall(dofile, ROOT .. "/data/beacon_status.lua")
+  if ok and type(value) == "table" then return value end
+end
+
 local function connectionQuality(ms)
   if not ms then return "UNKNOWN", colors.lightGray end
   if ms <= 1500 then return "EXCELLENT", colors.lime end
@@ -77,6 +82,7 @@ local function chooseLocationRemote(title)
   local remotes, lastErr, tracking = {}, nil, nil
   local deadline = os.clock() + 8
   repeat
+    local beaconStatus=loadBeaconStatus()
     local response,err=request("location-list")
     if response then remotes=response.remotes or {}; tracking=response.tracking else lastErr=err end
     clear(colors.black); header(title or "NavRemotes")
@@ -86,6 +92,10 @@ local function chooseLocationRemote(title)
       writeAt(3,7,"Aircraft modem: "..tostring(tracking.modem or "none"),tracking.hasWireless and colors.lime or colors.red)
       writeAt(3,8,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
       writeAt(3,9,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+      if beaconStatus then
+        local age=nowMs()-(tonumber(beaconStatus.updated) or nowMs())
+        writeAt(3,10,"Remote beacon: "..tostring(beaconStatus.reason or "unknown").." via "..tostring(beaconStatus.modem or "none").." ("..ageText(age).." ago)",beaconStatus.ok and colors.lime or colors.yellow)
+      end
     else
       writeAt(3,6,"Remote beacon requires wireless/Ender modem and GPS.",colors.lightGray)
       writeAt(3,7,"Aircraft location tracking must be enabled.",colors.lightGray)
@@ -97,10 +107,15 @@ local function chooseLocationRemote(title)
   clear(colors.black); header(title or "NavRemotes")
   if #remotes==0 then
     writeAt(3,4,"No broadcasting NavRemotes found.",colors.yellow)
+    local beaconStatus=loadBeaconStatus()
     if tracking then
       writeAt(3,6,"Tracking: "..(tracking.enabled and "enabled" or "disabled").."  Modem: "..tostring(tracking.modem or "none"),colors.lightGray)
       writeAt(3,7,"Port "..tostring(tracking.port).."  Heard "..tostring(tracking.received).."  Accepted "..tostring(tracking.accepted),colors.lightGray)
       writeAt(3,8,"Rejected key/host/channel: "..tostring(tracking.rejectedKey).."/"..tostring(tracking.rejectedHost).."/"..tostring(tracking.rejectedChannel),colors.lightGray)
+      if beaconStatus then
+        local age=nowMs()-(tonumber(beaconStatus.updated) or nowMs())
+        writeAt(3,9,"Remote beacon: "..tostring(beaconStatus.reason or "unknown").." via "..tostring(beaconStatus.modem or "none").." ("..ageText(age).." ago)",beaconStatus.ok and colors.lime or colors.yellow)
+      end
     else
       writeAt(3,6,"Check beacon modem/GPS and navtool setup.",colors.lightGray)
     end

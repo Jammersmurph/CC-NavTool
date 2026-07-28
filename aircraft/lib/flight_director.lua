@@ -16,6 +16,20 @@ local function horizontalSpeed(state)
   return math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
 end
 
+local function horizontalSpeedAlong(state, heading)
+  local velocity = vector(state and state.velocity)
+  heading = vector(heading)
+  if not velocity or not heading then return 0 end
+  return velocity.x * heading.x + velocity.z * heading.z
+end
+
+local function headingVector(degrees)
+  degrees = tonumber(degrees)
+  if not degrees then return nil end
+  local radians = math.rad(degrees)
+  return { x = math.sin(radians), y = 0, z = math.cos(radians) }
+end
+
 local function finalTarget(target, navigation)
   local requested = vector(target)
   if not requested then return nil end
@@ -38,15 +52,16 @@ local function stagedTarget(state, target, config)
   local horizontalDistance = math.sqrt(dx * dx + dz * dz)
   local driftSpeed = horizontalSpeed(state)
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
-  local settleVelocity = math.max(0, tonumber(navigation.horizontalSettleVelocity) or tonumber(navigation.settleVelocity) or 0.05)
+  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 1)
+  local settleVelocity = math.max(0, tonumber(navigation.horizontalSettleVelocity) or tonumber(navigation.settleVelocity) or 0.5)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
     or math.max(horizontalTolerance, tonumber(navigation.verticalTransitionRadius) or 3)
-  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 300
-  local cruiseAltitudeTolerance = math.max(0.001, tonumber(navigation.cruiseAltitudeTolerance) or tonumber(navigation.verticalTolerance) or 0.5)
+  local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 310
+  local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
+  local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
 
-  local horizontallyLocked = math.abs(dx) <= horizontalTolerance
-    and math.abs(dz) <= horizontalTolerance
+  local horizontallyLocked = horizontalDistance <= arrivalRadius
     and driftSpeed <= settleVelocity
 
   local desiredY
@@ -58,7 +73,11 @@ local function stagedTarget(state, target, config)
     desiredY = final.y
     phase = "final-altitude"
   elseif horizontalDistance > transitionRadius then
-    desiredY = cruiseAltitude
+    if position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum then
+      desiredY = position.y
+    else
+      desiredY = cruiseAltitude
+    end
     phase = "horizontal-cruise"
   else
     -- Inside the precision approach envelope but not exactly centered, freeze the
@@ -81,11 +100,13 @@ local function stagedTarget(state, target, config)
     horizontalSpeed = driftSpeed,
     horizontallyLocked = horizontallyLocked,
     horizontalTolerance = horizontalTolerance,
+    arrivalRadius = arrivalRadius,
     settleVelocity = settleVelocity,
     transitionRadius = transitionRadius,
     cruiseAltitude = cruiseAltitude,
-    cruiseAltitudeTolerance = cruiseAltitudeTolerance,
-    cruiseAltitudeReady = math.abs(position.y - cruiseAltitude) <= cruiseAltitudeTolerance,
+    cruiseAltitudeMinimum = cruiseAltitudeMinimum,
+    cruiseAltitudeMaximum = cruiseAltitudeMaximum,
+    cruiseAltitudeReady = position.y >= cruiseAltitudeMinimum and position.y <= cruiseAltitudeMaximum,
   }
 end
 
@@ -101,8 +122,10 @@ function Director.arrivalStatus(state, target, config)
   if not position or not targetPosition then return false, nil end
 
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
+  local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 1)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
-  local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.05)
+  local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.5)
+  local headingTolerance = math.rad(math.max(0, tonumber(navigation.headingTolerance) or 4))
 
   local dx = targetPosition.x - position.x
   local dy = targetPosition.y - position.y
@@ -115,9 +138,16 @@ function Director.arrivalStatus(state, target, config)
     settled = currentSpeed <= velocityTolerance
   end
 
-  local axesReached = math.abs(dx) <= horizontalTolerance
+  local horizontalReached = math.sqrt(dx * dx + dz * dz) <= arrivalRadius
+  local targetHeading = headingVector(target and target.heading)
+  local headingReached = true
+  if targetHeading then
+    local headingError = Director.headingError(state and state.heading, targetHeading)
+    headingReached = headingError ~= nil and math.abs(headingError) <= headingTolerance
+  end
+  local axesReached = horizontalReached
     and math.abs(dy) <= verticalTolerance
-    and math.abs(dz) <= horizontalTolerance
+    and headingReached
 
   return axesReached and settled, {
     xError = dx,
@@ -127,8 +157,11 @@ function Director.arrivalStatus(state, target, config)
     axesReached = axesReached,
     settled = settled,
     horizontalTolerance = horizontalTolerance,
+    arrivalRadius = arrivalRadius,
     verticalTolerance = verticalTolerance,
     velocityTolerance = velocityTolerance,
+    headingReached = headingReached,
+    headingTolerance = headingTolerance,
     navigationTarget = targetPosition,
   }
 end
@@ -153,20 +186,31 @@ function Director.solve(state, target, config)
   local precisionSpeed = tonumber(navigation.precisionSpeed) or 0.35
   local slowdownRadius = math.max(1, tonumber(navigation.slowdownRadius) or 50)
   local precisionRadius = math.max(0.1, tonumber(navigation.precisionRadius) or 3)
+  local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 1)
+  local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
+  local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
+  local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
+  local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
 
   -- Horizontal propulsion must depend only on horizontal error. A large altitude
   -- difference must never produce forward thrust after X/Z have been acquired.
   local speedRatio = clamp(horizontalDistance / slowdownRadius, 0, 1)
   local desiredSpeed = precisionSpeed + (cruiseSpeed - precisionSpeed) * speedRatio
   if horizontalDistance > precisionRadius then desiredSpeed = math.max(approachSpeed, desiredSpeed) end
-  if horizontalDistance <= (stage and stage.horizontalTolerance or 0.05) then desiredSpeed = 0 end
+  if horizontalDistance <= arrivalRadius then desiredSpeed = 0 end
   if stage and stage.phase == "horizontal-cruise" and not stage.cruiseAltitudeReady then desiredSpeed = 0 end
+  local approachSpeedAlong = horizontalSpeedAlong(state, heading)
+  local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
+  local finalCapture = horizontalDistance <= arrivalRadius
+  local targetHeading = headingVector(requestedTarget and requestedTarget.heading)
+  if targetHeading and horizontalDistance <= brakeRadius then heading = targetHeading end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
     target = target,
     requestedTarget = vector(requestedTarget),
     desiredHeading = heading,
+    finalHeading = targetHeading,
     desiredAltitude = target.y,
     desiredSpeed = desiredSpeed,
     distance = distance,
@@ -181,6 +225,14 @@ function Director.solve(state, target, config)
     horizontallyLocked = stage and stage.horizontallyLocked or false,
     horizontalSpeed = stage and stage.horizontalSpeed or nil,
     horizontalTolerance = stage and stage.horizontalTolerance or nil,
+    arrivalRadius = arrivalRadius,
+    brakeRadius = brakeRadius,
+    finalOutputMaximum = finalOutputMaximum,
+    finalVerticalRadius = finalVerticalRadius,
+    finalVerticalOutputMaximum = finalVerticalOutputMaximum,
+    shouldBrake = shouldBrake,
+    finalCapture = finalCapture,
+    approachSpeedAlong = approachSpeedAlong,
     transitionRadius = stage and stage.transitionRadius or nil,
     cruiseAltitude = stage and stage.cruiseAltitude or nil,
     cruiseAltitudeReady = stage and stage.cruiseAltitudeReady or false,
@@ -191,7 +243,8 @@ function Director.headingError(current, desired)
   current, desired = vector(current), vector(desired)
   if not current or not desired then return nil end
   local dot = clamp(current.x * desired.x + current.z * desired.z, -1, 1)
-  local cross = current.x * desired.z - current.z * desired.x
+  -- Positive error means yaw left, matching the aircraft output names.
+  local cross = current.z * desired.x - current.x * desired.z
   return math.atan2(cross, dot), dot, cross
 end
 

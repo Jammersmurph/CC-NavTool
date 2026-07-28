@@ -1,4 +1,4 @@
--- CC-NavTool Avionics-native flight runtime
+-- CC-NavTool Sable-native flight runtime
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -37,23 +37,45 @@ local function outputMaximum(config, output)
   return math.max(0, math.min(15, tonumber(output.maximum) or 15, tonumber(safety.maximumOutput) or 5))
 end
 
-local function writeOutputTarget(config, output, normalized)
+local function outputTargets(output)
+  if type(output) ~= "table" then return {} end
+  if type(output.targets) == "table" then return output.targets end
+  if output.side then return { output } end
+  return {}
+end
+
+local function outputValue(config, output, normalized)
   if type(output) ~= "table" or not output.side then return 0 end
   local maximum = outputMaximum(config, output)
   local value = math.floor(clamp(math.abs(normalized), 0, 1) * maximum + 0.5)
   if output.inverted and value > 0 then value = math.max(1, maximum - value + 1) end
-  if output.analog == false then redstone.setOutput(output.side, value > 0)
-  else redstone.setAnalogOutput(output.side, value) end
   return value
 end
 
-local function writeOutput(config, name, normalized)
-  local output = config.outputs and config.outputs[name]
-  if type(output) ~= "table" then return 0 end
-  local targets = type(output.targets) == "table" and output.targets or { output }
-  local applied = 0
-  for _, target in ipairs(targets) do
-    applied = math.max(applied, writeOutputTarget(config, target, normalized))
+local function writeOutputTarget(output, value)
+  if output.analog == false then redstone.setOutput(output.side, value > 0)
+  else redstone.setAnalogOutput(output.side, value) end
+end
+
+local function writeOutputs(config, commands)
+  local winners = {}
+  local applied = {}
+  for name, output in pairs(config.outputs or {}) do
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side then
+        local value = outputValue(config, target, commands[name] or 0)
+        local current = winners[target.side]
+        if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+      end
+    end
+  end
+  for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
+  for name, output in pairs(config.outputs or {}) do
+    local value = 0
+    for _, target in ipairs(outputTargets(output)) do
+      if type(target) == "table" and target.side and winners[target.side] then value = math.max(value, winners[target.side].value) end
+    end
+    applied[name] = value
   end
   return applied
 end
@@ -131,7 +153,7 @@ local function controlTick()
   if mode == "standby" then
     headingPID:reset(); altitudePID:reset(); speedPID:reset()
   elseif not state.healthy then
-    fault = "required Create: Avionics/Sable telemetry unavailable"
+    fault = "required CC:Sable telemetry unavailable"
     if not config.safety or config.safety.disengageOnTelemetryLoss ~= false then
       save(MODE_PATH, { mode = "standby" })
       mode = "standby"
@@ -144,22 +166,51 @@ local function controlTick()
         mode = "hover"
       else
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
-        local yawRate = type(state.angularVelocity) == "table" and tonumber(state.angularVelocity.y or state.angularVelocity[2]) or nil
-        local yaw = headingPID:update(headingError or 0, dt, yawRate)
-        splitAxis(yaw, "right", "left", commands)
+        if guidance.finalCapture then
+          headingPID:reset()
+        else
+          local yaw = headingPID:update(headingError or 0, dt)
+          splitAxis(yaw, "left", "right", commands)
+        end
 
-        local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
-        splitAxis(vertical, "up", "down", commands)
+        if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+          altitudePID:reset()
+        else
+          local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
+          splitAxis(vertical, "up", "down", commands)
+        end
+        if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+          local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
+          local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+          local normalizedLimit = limit / maximum
+          commands.up = math.min(commands.up or 0, normalizedLimit)
+          commands.down = math.min(commands.down or 0, normalizedLimit)
+        end
 
         local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.75) then
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.65) then
           thrust = 0
           speedPID:reset()
         end
-        thrust = math.max(0, thrust)
-        splitAxis(thrust, "forward", "reverse", commands)
+        if guidance.shouldBrake then
+          speedPID:reset()
+          local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber((config.navigation or {}).cruiseSpeed) or 12)))
+          splitAxis(-brake, "forward", "reverse", commands)
+        elseif guidance.finalCapture then
+          speedPID:reset()
+        else
+          thrust = math.max(0, thrust)
+          splitAxis(thrust, "forward", "reverse", commands)
+        end
+        if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+          local limit = math.max(1, math.min(15, tonumber(guidance.finalOutputMaximum) or 2))
+          local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+          local normalizedLimit = limit / maximum
+          commands.forward = math.min(commands.forward or 0, normalizedLimit)
+          commands.reverse = math.min(commands.reverse or 0, normalizedLimit)
+        end
       end
     end
   elseif mode == "hover" then
@@ -175,11 +226,8 @@ local function controlTick()
     mode = "standby"
   end
 
-  local applied = {}
-  for name, value in pairs(commands) do
-    local ok, result = pcall(writeOutput, config, name, value)
-    applied[name] = ok and result or 0
-  end
+  local okApplied, applied = pcall(writeOutputs, config, commands)
+  if not okApplied then applied = {} end
 
   recorder:append({
     mode = mode,
@@ -203,7 +251,7 @@ local function controlTick()
 
   term.clear()
   term.setCursorPos(1, 1)
-  print("CC-NavTool Flight Core")
+  print("CC-NavTool Sable Flight Core")
   print("Mode: " .. mode)
   print("Telemetry: " .. (state.healthy and "ONLINE" or "DEGRADED"))
   print("Source: " .. tostring(state.source))
@@ -238,7 +286,7 @@ local function loop()
   end
 end
 
-print("Starting Avionics-native flight core...")
+print("Starting Sable-native flight core...")
 local ok, err = pcall(parallel.waitForAny, loop, controls)
 if not ok then printError(err) end
 clearOutputs(config)

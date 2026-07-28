@@ -3,6 +3,31 @@ local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
 
+local CARDINAL_TO_DEGREES = {
+  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
+}
+local DEGREES_TO_CARDINAL = {
+  [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
+  [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
+}
+
+local function cardinalToDegrees(input)
+  if input == nil or input == "" then return nil end
+  local key = tostring(input):lower()
+  return CARDINAL_TO_DEGREES[key]
+end
+
+local function degreesToCardinal(degrees)
+  degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
+  local best, bestDist = "N", 360
+  for deg, label in pairs(DEGREES_TO_CARDINAL) do
+    local dist = math.abs(degrees - deg)
+    if dist > 180 then dist = 360 - dist end
+    if dist < bestDist then best, bestDist = label, dist end
+  end
+  return best
+end
+
 local config = dofile(CONFIG_PATH)
 config.profiles = type(config.profiles) == "table" and config.profiles or {}
 config.activeProfile = config.activeProfile or next(config.profiles)
@@ -121,9 +146,13 @@ local function refresh(data,silent)
 end
 
 local function iconPosition(index)
-  local col=(index-1)%3
-  local row=math.floor((index-1)/3)
-  return 16+col*12,3+row*5
+  local w=term.getSize()
+  local columns=w>=45 and 4 or 3
+  local col=(index-1)%columns
+  local row=math.floor((index-1)/columns)
+  local spacing=12
+  local start=math.max(2,math.floor((w-(columns*9+(columns-1)*(spacing-9)))/2)+1)
+  return start+col*spacing,3+row*5
 end
 
 local function drawIcon(index,icon)
@@ -131,30 +160,21 @@ local function drawIcon(index,icon)
   local active=index==selected
   local bg=active and colors.lightGray or colors.green
   local fg=active and colors.black or colors.white
-  fill(x-1,y-1,8,5,bg)
+  fill(x-1,y-1,9,5,bg)
   for row,line in ipairs(icon.glyph) do
     for col=1,#line do
       if line:sub(col,col)=="#" then writeAt(x+col-1,y+row-1," ",fg,fg) end
     end
   end
-  writeAt(x-1,y+3,icon.label:sub(1,10),fg,bg)
+  writeAt(x-1,y+3,icon.label:sub(1,9),fg,bg)
 end
 
 local function desktop()
   clear(colors.green)
   header("", "[ " .. tostring(config.activeProfile or "none") .. " ]")
-  local categories={"HOME","NAVIGATION","AUTOPILOT","AIRCRAFT","SYSTEM"}
   local w,h=term.getSize()
-  fill(1,2,12,h-2,colors.gray)
-  for i,name in ipairs(categories) do
-    local active=(i==1)
-    fill(1,i+2,12,1,active and colors.lightGray or colors.gray)
-    writeAt(2,i+2,name,active and colors.black or colors.white,active and colors.lightGray or colors.gray)
-  end
-  writeAt(2,h-3,"PROGRAM",colors.lightGray,colors.gray)
-  writeAt(2,h-2,"CONTROLLER",colors.lightGray,colors.gray)
   for i,icon in ipairs(icons) do drawIcon(i,icon) end
-  if message~="" then writeAt(14,h-1,message:sub(1,math.max(1,w-15)),colors.yellow,colors.green) end
+  if message~="" then writeAt(2,h-1,message:sub(1,math.max(1,w-3)),colors.yellow,colors.green) end
   footer("Arrows: move  Enter: open  R: refresh  Q: quit")
 end
 
@@ -192,7 +212,12 @@ local function targetsPage(data)
     elseif key==keys.a then
       local name=prompt("Target name")
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
-      if name and name~="" and x and y and z then data.targets[name]={name=name,x=x,y=y,z=z}; saveData(data) end
+      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
+      if name and name~="" and x and y and z then
+        local target={name=name,x=x,y=y,z=z}
+        if heading then target.heading=heading end
+        data.targets[name]=target; saveData(data)
+      end
     elseif key==keys.g then
       local name=prompt("Target to activate")
       if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Target not found" end
@@ -211,12 +236,17 @@ local function createPath(data,kind)
   for i=1,math.floor(count) do
     local saved=prompt("Stop "..i.." saved target (blank=coords)","")
     if saved~="" and data.targets[saved] then
-      local t=data.targets[saved]; stops[#stops+1]={name=t.name,x=t.x,y=t.y,z=t.z}
+      local t=data.targets[saved]; local stop={name=t.name,x=t.x,y=t.y,z=t.z}
+      if t.heading then stop.heading=t.heading end
+      stops[#stops+1]=stop
     else
       local label=prompt("Stop "..i.." label","Stop "..i)
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
+      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
       if not x or not y or not z then return end
-      stops[#stops+1]={name=label,x=x,y=y,z=z}
+      local stop={name=label,x=x,y=y,z=z}
+      if heading then stop.heading=heading end
+      stops[#stops+1]=stop
     end
   end
   local item={name=name,stops=stops}
@@ -403,11 +433,12 @@ while true do
     refreshTimer=os.startTimer(1)
   elseif event=="key" then
     local key=a
+    local columns=term.getSize()>=45 and 4 or 3
     if key==keys.q then clear(colors.black); return
     elseif key==keys.left and selected>1 then selected=selected-1
     elseif key==keys.right and selected<#icons then selected=selected+1
-    elseif key==keys.up and selected>3 then selected=selected-3
-    elseif key==keys.down and selected+3<=#icons then selected=selected+3
+    elseif key==keys.up and selected>columns then selected=selected-columns
+    elseif key==keys.down and selected+columns<=#icons then selected=selected+columns
     elseif key==keys.r then local status,err=refresh(data); message=err or (status and "Telemetry refreshed" or "No telemetry")
     elseif key==keys.enter then
       local id=icons[selected].id

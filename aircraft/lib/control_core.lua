@@ -173,7 +173,7 @@ function Control:outputs(state)
   self.lastClock = now
   local mode = tostring(state.mode or "standby")
   local commands = { forward = 0, reverse = 0, left = 0, right = 0, up = 0, down = 0 }
-  local notes = { "Avionics flight core" }
+  local notes = { "Sable flight core" }
 
   if mode == "standby" then
     self:reset()
@@ -204,22 +204,61 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
-    local angular = state.angularVelocity
-    local yawRate = type(angular) == "table" and tonumber(angular.y or angular[2]) or nil
-    self:setAxis(commands, self.heading:update(headingError or 0, dt, yawRate), "right", "left", "heading", false)
+    if guidance.finalCapture then
+      self.heading:reset()
+      commands.left, commands.right = 0, 0
+    else
+      self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
+    end
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
-    self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+      self.altitude:reset()
+      commands.up, commands.down = 0, 0
+    else
+      self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    end
+    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+      local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
+      commands.up = math.min(commands.up or 0, limit)
+      commands.down = math.min(commands.down or 0, limit)
+      notes[#notes + 1] = "final up/down cap " .. tostring(limit)
+    end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
-    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.75
+    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.65
     if not alignment or alignment < minimumAlignment then
-      thrust = 0
       self.speed:reset()
+      if currentHorizontalSpeed > 0.25 then
+        local brake = math.min(1, currentHorizontalSpeed / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12))
+        self:setAxis(commands, -brake, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("align brake %.2f align %.2f", currentHorizontalSpeed, alignment or 0)
+      else
+        thrust = 0
+        self:setAxis(commands, 0, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("forward held: align %.2f < %.2f", alignment or 0, minimumAlignment)
+      end
     end
-    thrust = math.max(0, thrust)
-    self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
+    if guidance.shouldBrake then
+      self.speed:reset()
+      local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12)))
+      self:setAxis(commands, -brake, "forward", "reverse", "speed", false)
+      notes[#notes + 1] = string.format("final brake %.2f in %.1f", guidance.approachSpeedAlong or 0, guidance.horizontalDistance or 0)
+    elseif guidance.finalCapture then
+      self.speed:reset()
+      commands.forward, commands.reverse = 0, 0
+      notes[#notes + 1] = string.format("final capture %.1f", guidance.horizontalDistance or 0)
+    else
+      thrust = math.max(0, thrust)
+      self:setAxis(commands, thrust, "forward", "reverse", "speed", false)
+    end
+    if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+      local limit = tonumber(guidance.finalOutputMaximum) or 2
+      commands.forward = math.min(commands.forward or 0, limit)
+      commands.reverse = math.min(commands.reverse or 0, limit)
+      notes[#notes + 1] = "final f/rev cap " .. tostring(limit)
+    end
     notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
     notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
     notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)
