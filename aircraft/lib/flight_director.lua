@@ -216,7 +216,7 @@ function Director.solve(state, target, config)
   local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
   local finalCapture = horizontalDistance <= arrivalRadius
   local targetHeading = headingVector(requestedTarget and requestedTarget.heading)
-  if targetHeading and horizontalDistance <= brakeRadius then heading = targetHeading end
+  if targetHeading and horizontalDistance <= arrivalRadius then heading = targetHeading end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {

@@ -157,6 +157,7 @@ end
 function Hardware.describe(config)
   config.hardware = type(config.hardware) == "table" and config.hardware or {}
   local assignments = {}
+  local airshipVertical
   for _, control in ipairs(CONTROLS) do
     local output = type(config.outputs) == "table" and config.outputs[control] or nil
     local targets = outputTargets(output)
@@ -180,9 +181,17 @@ function Hardware.describe(config)
       targets = described,
     }
   end
+  for _, control in ipairs({ "up", "down" }) do
+    local output = type(config.outputs) == "table" and config.outputs[control] or nil
+    local target = outputTargets(output)[1]
+    if type(target) == "table" and target.side then
+      local ok, value = pcall(redstone.getAnalogOutput, target.side)
+      if ok then airshipVertical = tonumber(value) or 0; break end
+    end
+  end
   return {
     relays = Hardware.relays(), assignments = assignments, sides = SIDES, controls = CONTROLS,
-    modes = { airship = config.hardware.airshipMode == true },
+    modes = { airship = config.hardware.airshipMode == true, airshipVertical = airshipVertical },
   }
 end
 
