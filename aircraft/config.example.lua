@@ -21,6 +21,9 @@ return {
     disengageOnTelemetryLoss = true,
     clearOutputsOnExit = true,
   },
+  hardware = {
+    airshipMode = false,
+  },
   navigation = {
     cruiseSpeed = 12,
     approachSpeed = 4,

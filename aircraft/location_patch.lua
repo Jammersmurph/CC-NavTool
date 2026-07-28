@@ -49,6 +49,10 @@ function Patch.apply(source)
         elseif request.command == "hardware-test" then
           local okTest, result = Hardware.test(config, request.control, request.strength)
           response = okTest and { ok = true } or { ok = false, error = result }
+        elseif request.command == "hardware-mode" then
+          local okMode, result = Hardware.setMode(config, request)
+          if okMode then saveConfig(config); response = { ok = true, hardware = result }
+          else response = { ok = false, error = result } end
         elseif request.command == "location-list" then
           response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following(), tracking = LocationNetwork.status() }
         elseif request.command == "follow-remote" then
