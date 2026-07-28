@@ -218,7 +218,7 @@ function Control:outputs(state)
     else
       self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
     end
-    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 10) then
+    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
       commands.up = math.min(commands.up or 0, limit)
       commands.down = math.min(commands.down or 0, limit)
