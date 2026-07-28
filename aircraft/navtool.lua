@@ -1257,6 +1257,15 @@ local function server(config, debug)
           saveMode("standby")
           clearOutputs(config)
           response = { ok = true }
+        elseif request.command == "hardware-mode" then
+          config.hardware = type(config.hardware) == "table" and config.hardware or {}
+          if tostring(request.mode or "") == "airship" then
+            config.hardware.airshipMode = request.enabled == true
+            saveConfig(config)
+            response = { ok = true, hardware = { modes = { airship = config.hardware.airshipMode == true } } }
+          else
+            response = { ok = false, error = "invalid hardware mode" }
+          end
         elseif request.command == "skip-stop" then
           local active = loadActiveSchedule()
           if active then
