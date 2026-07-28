@@ -52,7 +52,9 @@ local function stagedTarget(state, target, config)
   local horizontalDistance = math.sqrt(dx * dx + dz * dz)
   local driftSpeed = horizontalSpeed(state)
   local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
+  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
   local arrivalRadius = math.max(horizontalTolerance, tonumber(navigation.arrivalRadius) or 1)
+  if airshipMode then arrivalRadius = math.max(arrivalRadius, tonumber(navigation.airshipArrivalRadius) or 6) end
   local settleVelocity = math.max(0, tonumber(navigation.horizontalSettleVelocity) or tonumber(navigation.settleVelocity) or 0.5)
   local transitionRadius = following
     and math.max(horizontalTolerance, tonumber(navigation.followHorizontalRadius) or 10)
@@ -60,8 +62,6 @@ local function stagedTarget(state, target, config)
   local cruiseAltitude = tonumber(navigation.cruiseAltitude) or 310
   local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
   local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
-  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
-
   local horizontallyLocked = horizontalDistance <= arrivalRadius
     and driftSpeed <= settleVelocity
 
@@ -128,6 +128,13 @@ function Director.arrivalStatus(state, target, config)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
   local velocityTolerance = math.max(0, tonumber(navigation.settleVelocity) or 0.5)
   local headingTolerance = math.rad(math.max(0, tonumber(navigation.headingTolerance) or 4))
+  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
+  if airshipMode then
+    arrivalRadius = math.max(arrivalRadius, tonumber(navigation.airshipArrivalRadius) or 6)
+    verticalTolerance = math.max(verticalTolerance, tonumber(navigation.airshipVerticalTolerance) or 8)
+    velocityTolerance = math.max(velocityTolerance, tonumber(navigation.airshipSettleVelocity) or 2.0)
+    headingTolerance = math.rad(math.max(math.deg(headingTolerance), tonumber(navigation.airshipHeadingTolerance) or 15))
+  end
 
   local dx = targetPosition.x - position.x
   local dy = targetPosition.y - position.y
@@ -164,6 +171,7 @@ function Director.arrivalStatus(state, target, config)
     velocityTolerance = velocityTolerance,
     headingReached = headingReached,
     headingTolerance = headingTolerance,
+    airshipMode = airshipMode,
     navigationTarget = targetPosition,
   }
 end
@@ -189,6 +197,9 @@ function Director.solve(state, target, config)
   local slowdownRadius = math.max(1, tonumber(navigation.slowdownRadius) or 50)
   local precisionRadius = math.max(0.1, tonumber(navigation.precisionRadius) or 3)
   local arrivalRadius = math.max(stage and stage.horizontalTolerance or 0.05, tonumber(navigation.arrivalRadius) or 1)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true then
+    arrivalRadius = math.max(arrivalRadius, tonumber(navigation.airshipArrivalRadius) or 6)
+  end
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
   local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
