@@ -1084,6 +1084,24 @@ snapshot = function(config, options)
   local pose = (subState and subState.pose) or (legacyState and legacyState.pose)
   if not heading then heading, headingSource = headingFromPose(config, pose) end
   local source = subState and "sublevel" or (legacyState and legacyState.peripheral) or (gpsData and "gps") or "none"
+  local scheduleArrival
+  if activeSchedule and schedules and position then
+    local schedule = schedules[activeSchedule.name]
+    local stops = schedule and schedule.stops
+    local index = math.max(1, math.min(stops and #stops or 1, tonumber(activeSchedule.index) or 1))
+    local stop = stops and stops[index]
+    if stop then
+      local ok, arrived, details = pcall(ScheduleDirector.arrivalStatus, {
+        position = position,
+        velocity = velocity,
+        heading = heading,
+      }, stop, config)
+      if ok then
+        scheduleArrival = details or {}
+        scheduleArrival.arrived = arrived == true
+      end
+    end
+  end
   return {
     version = VERSION,
     telemetry = position ~= nil or heading ~= nil,
@@ -1122,6 +1140,7 @@ snapshot = function(config, options)
     schedules = schedules,
     scheduleNames = scheduleNames,
     activeSchedule = activeSchedule,
+    scheduleArrival = scheduleArrival,
     mode = mode,
   }
 end
