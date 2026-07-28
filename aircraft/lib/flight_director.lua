@@ -181,7 +181,7 @@ function Director.solve(state, target, config)
   if stage and stage.phase == "horizontal-cruise" and not stage.cruiseAltitudeReady then desiredSpeed = 0 end
   local approachSpeedAlong = horizontalSpeedAlong(state, heading)
   local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
-  local finalCapture = horizontalDistance <= brakeRadius
+  local finalCapture = horizontalDistance <= arrivalRadius
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
