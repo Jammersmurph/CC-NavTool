@@ -260,8 +260,9 @@ local profileAt = source:find(profileMarker,1,true)
 if profileAt then source=source:sub(1,profileAt-1)..hardwarePageSource.."\n\n"..source:sub(profileAt) end
 ]=]
 
-  local marker = "if count ~= 5 then"
+  local marker = "if count < 4 then"
   local updated, ok = insertBefore(runtimeSource, marker, injection)
+  if not ok then updated, ok = insertBefore(runtimeSource, "if count ~= 5 then", injection) end
   if not ok then error("Hardware patch could not find NavRemote controller anchor") end
   return updated
 end
