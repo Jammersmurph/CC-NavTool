@@ -67,8 +67,8 @@ local function loadConfig()
     config.navigation.arrivalRadius = 1
     config._migrated = true
   end
-  if type(config.navigation) == "table" and config.navigation.headingTolerance == nil then
-    config.navigation.headingTolerance = 7
+  if type(config.navigation) == "table" and (tonumber(config.navigation.headingTolerance) or 0) > 4 then
+    config.navigation.headingTolerance = 4
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
