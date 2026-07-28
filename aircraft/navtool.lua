@@ -6,7 +6,6 @@ local WAYPOINTS_PATH = ROOT .. "/waypoints.db"
 local MODE_PATH = ROOT .. "/mode.db"
 local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
-local STATUS_PATH = ROOT .. "/status.db"
 local args = { ... }
 local buttons = {}
 
@@ -458,15 +457,6 @@ local function saveTarget(target)
   local file = fs.open(TARGET_PATH, "w")
   file.write(textutils.serialize(target))
   file.close()
-end
-
-local function saveStatusCache(state, requested, applied, notes)
-  if type(state) ~= "table" then return end
-  state.requestedOutputs = requested or {}
-  state.appliedOutputs = applied or {}
-  state.notes = notes or {}
-  state.updatedAt = os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000)
-  saveData(STATUS_PATH, state)
 end
 
 local function extractVector(value)
@@ -1314,14 +1304,12 @@ local function server(config, debug)
         if activeSchedule or (mode ~= "standby" and (mode == "hover" or target)) then
           local ok, state, requested, applied, notes = pcall(serverAutomationTick, config, automationOutputController)
           if ok then
-            saveStatusCache(state, requested, applied, notes)
             if renderMonitorStatus then pcall(renderMonitorStatus, config, state, requested, applied, notes) end
           else
             printError("Automation tick failed: " .. tostring(state))
           end
         else
           local state = snapshot(config, { library = false, schedule = false, gps = false })
-          saveStatusCache(state, {}, {}, { "standby" })
           if renderMonitorStatus then pcall(renderMonitorStatus, config, state, {}, {}, { "standby" }) end
         end
       end
@@ -1620,7 +1608,6 @@ serverAutomationTick = function(config, outputController)
   end
   local requested, notes = automationOutputs(config, state)
   local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
-  saveStatusCache(state, requested, applied, notes)
   return state, requested, applied, notes
 end
 
