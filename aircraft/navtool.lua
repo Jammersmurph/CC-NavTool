@@ -384,6 +384,23 @@ local function setOutput(config, control, strength)
   return wrote, applied
 end
 
+local function setAirshipVerticalOutput(config, strength)
+  if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then return false, "airship mode is off" end
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local targets = {}
+  for _, target in ipairs(outputTargets(outputs.up)) do targets[#targets + 1] = target end
+  for _, target in ipairs(outputTargets(outputs.down)) do targets[#targets + 1] = target end
+  if #targets == 0 then return false, "vertical output unassigned" end
+  local applied, wrote = 0, false
+  for _, target in ipairs(targets) do
+    if type(target) == "table" and target.side then
+      local ok, value = setOutputTarget(config, target, strength)
+      if ok then wrote = true; applied = math.max(applied, tonumber(value) or 0) end
+    end
+  end
+  return wrote, applied
+end
+
 local function applyOutputs(config, requested)
   local ok, applied = pcall(applyOutputValues, config, requested or {})
   return ok and applied or {}
@@ -1173,6 +1190,11 @@ local function server(config, debug)
               response = { ok = false, error = "output failed" }
             end
           end
+        elseif request.command == "airship-vertical-control" then
+          local safety = type(config.safety) == "table" and config.safety or {}
+          local strength = math.max(0, math.min(tonumber(safety.maximumOutput) or 15, tonumber(request.strength) or 0))
+          local okAirship, value = setAirshipVerticalOutput(config, strength)
+          response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
         elseif request.command == "monitor-list" then
           response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
         elseif request.command == "monitor-set" then
