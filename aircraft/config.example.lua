@@ -24,6 +24,7 @@ return {
   hardware = {
     airshipMode = false,
     airshipArrivedPower = 2,
+    airshipReturnDrift = 5,
   },
   navigation = {
     cruiseSpeed = 12,
