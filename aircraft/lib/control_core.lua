@@ -89,6 +89,7 @@ function Control.new(config)
     positionVertical = PID.new(fc.positionVerticalPID or fc.altitudePID or { kp = 0.22, ki = 0.012, kd = 0.3, minimum = -0.5, maximum = 0.5, integralMinimum = -0.25, integralMaximum = 0.25 }),
     lastClock = os.clock(),
     hoverAltitude = nil,
+    airshipArrivalLock = nil,
     pulse = {},
   }, Control)
 end
@@ -135,6 +136,7 @@ function Control:reset()
   self.positionLateral:reset()
   self.positionVertical:reset()
   self.hoverAltitude = nil
+  self.airshipArrivalLock = nil
   self.pulse = {}
 end
 
@@ -145,6 +147,20 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
   if not position or not target or not forward then return false end
 
   if guidance.arrived then
+    if type(self.config.hardware) == "table" and self.config.hardware.airshipMode == true then
+      self.airshipArrivalLock = self.airshipArrivalLock or { x = target.x, z = target.z }
+      local driftLimit = tonumber(self.config.hardware.airshipReturnDrift) or 5
+      local lockDx, lockDz = position.x - self.airshipArrivalLock.x, position.z - self.airshipArrivalLock.z
+      if math.sqrt(lockDx * lockDx + lockDz * lockDz) > driftLimit then
+        self.airshipArrivalLock = nil
+        notes[#notes + 1] = "airship drift return"
+        return false
+      end
+      commands.__airshipArrived = true
+      commands.up, commands.down = 0, 0
+    else
+      self.airshipArrivalLock = nil
+    end
     self.positionForward:reset()
     self.positionLateral:reset()
     self.positionVertical:reset()
@@ -152,6 +168,8 @@ function Control:precisionHold(state, guidance, commands, dt, notes)
     notes[#notes + 1] = "coordinate lock"
     return true
   end
+
+  self.airshipArrivalLock = nil
 
   local dx, dy, dz = target.x - position.x, target.y - position.y, target.z - position.z
   local forwardError = dx * forward.x + dz * forward.z
@@ -212,11 +230,21 @@ function Control:outputs(state)
     end
 
     local verticalSpeed = tonumber(state.verticalSpeed) or (state.velocity and tonumber(state.velocity.y or state.velocity[2])) or 0
+    local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
     if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
       self.altitude:reset()
       commands.up, commands.down = 0, 0
     else
       self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
+    end
+    if airshipCruiseGate then
+      local verticalMaximum = math.max(maximum(self.config, "up"), maximum(self.config, "down"))
+      guidance.cruiseAltitudeReady = math.max(commands.up or 0, commands.down or 0) >= verticalMaximum
+      if guidance.cruiseAltitudeReady then
+        notes[#notes + 1] = "airship cruise: vertical max"
+      else
+        notes[#notes + 1] = "airship cruise: waiting for vertical max"
+      end
     end
     if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
@@ -226,6 +254,7 @@ function Control:outputs(state)
     end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
+    if airshipCruiseGate and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
     local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.65
     if not alignment or alignment < minimumAlignment then

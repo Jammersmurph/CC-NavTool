@@ -21,6 +21,11 @@ return {
     disengageOnTelemetryLoss = true,
     clearOutputsOnExit = true,
   },
+  hardware = {
+    airshipMode = false,
+    airshipArrivedPower = 2,
+    airshipReturnDrift = 5,
+  },
   navigation = {
     cruiseSpeed = 12,
     approachSpeed = 4,
@@ -33,6 +38,10 @@ return {
     arrivalRadius = 1,
     brakeRadius = 75,
     headingTolerance = 4,
+    airshipArrivalRadius = 6,
+    airshipVerticalTolerance = 8,
+    airshipHeadingTolerance = 15,
+    airshipSettleVelocity = 2.0,
     finalOutputMaximum = 2,
     finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,

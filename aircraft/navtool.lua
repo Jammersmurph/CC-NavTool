@@ -1,4 +1,4 @@
-local VERSION = "0.5.0-beta"
+local VERSION = "0.5.1-nightly"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -298,18 +298,54 @@ local function outputTargets(output)
   return {}
 end
 
+local function writeWinner(config, winners, target, strength)
+  if type(target) ~= "table" or not target.side then return end
+  local ok, value = outputValue(config, target, strength)
+  if not ok then return end
+  local current = winners[target.side]
+  if not current or value > current.value then winners[target.side] = { target = target, value = value } end
+end
+
+local function applyAirshipVertical(config, values, winners, applied)
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local upTargets, downTargets = outputTargets(outputs.up), outputTargets(outputs.down)
+  if #upTargets == 0 and #downTargets == 0 then return false end
+
+  local up = tonumber(values and values.up) or 0
+  local down = tonumber(values and values.down) or 0
+
+  local verticalTargets = {}
+  for _, target in ipairs(upTargets) do verticalTargets[#verticalTargets + 1] = target end
+  for _, target in ipairs(downTargets) do verticalTargets[#verticalTargets + 1] = target end
+
+  for _, target in ipairs(verticalTargets) do
+    local maximum = outputMaximum(config, target)
+    local neutral = math.floor(maximum / 2 + 0.5)
+    local delta = math.max(-neutral, math.min(maximum - neutral, up - down))
+    local output = neutral + delta
+    if values and values.__airshipArrived then
+      output = math.max(0, math.min(maximum, tonumber((config.hardware or {}).airshipArrivedPower) or 2))
+    elseif values and values.__clear then
+      output = 0
+    end
+    writeWinner(config, winners, target, output)
+  end
+  applied.up = up > down and up or 0
+  applied.down = down > up and down or 0
+  applied.airshipVertical = true
+  return true
+end
+
 local function applyOutputValues(config, values)
   local winners = {}
   local applied = {}
+  local airshipVertical = type(config.hardware) == "table" and config.hardware.airshipMode == true
+  if airshipVertical then applyAirshipVertical(config, values, winners, applied) end
   for control, output in pairs(config.outputs or {}) do
+    if not (airshipVertical and (control == "up" or control == "down")) then
     for _, target in ipairs(outputTargets(output)) do
-      if type(target) == "table" and target.side then
-        local ok, value = outputValue(config, target, values and values[control] or 0)
-        if ok then
-          local current = winners[target.side]
-          if not current or value > current.value then winners[target.side] = { target = target, value = value } end
-        end
-      end
+      writeWinner(config, winners, target, values and values[control] or 0)
+    end
     end
   end
   for _, winner in pairs(winners) do writeOutputTarget(winner.target, winner.value) end
@@ -326,6 +362,12 @@ local function applyOutputValues(config, values)
 end
 
 local function setOutput(config, control, strength)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true and (control == "up" or control == "down") then
+    local values = { up = 0, down = 0 }
+    values[control] = tonumber(strength) or 0
+    local applied = applyOutputValues(config, values)
+    return true, applied[control] or 0
+  end
   local output = config.outputs and config.outputs[control]
   if type(output) ~= "table" then return false end
   local targets = type(output.targets) == "table" and output.targets or { output }
@@ -337,6 +379,23 @@ local function setOutput(config, control, strength)
         wrote = true
         applied = math.max(applied, tonumber(value) or 0)
       end
+    end
+  end
+  return wrote, applied
+end
+
+local function setAirshipVerticalOutput(config, strength)
+  if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then return false, "airship mode is off" end
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local targets = {}
+  for _, target in ipairs(outputTargets(outputs.up)) do targets[#targets + 1] = target end
+  for _, target in ipairs(outputTargets(outputs.down)) do targets[#targets + 1] = target end
+  if #targets == 0 then return false, "vertical output unassigned" end
+  local applied, wrote = 0, false
+  for _, target in ipairs(targets) do
+    if type(target) == "table" and target.side then
+      local ok, value = setOutputTarget(config, target, strength)
+      if ok then wrote = true; applied = math.max(applied, tonumber(value) or 0) end
     end
   end
   return wrote, applied
@@ -390,6 +449,7 @@ local function makeOutputController(config)
       end
       applied[control] = value or 0
     end
+    if forceClear then applied.__clear = true end
     return applyOutputs(config, applied)
   end
 end
@@ -1130,6 +1190,11 @@ local function server(config, debug)
               response = { ok = false, error = "output failed" }
             end
           end
+        elseif request.command == "airship-vertical-control" then
+          local safety = type(config.safety) == "table" and config.safety or {}
+          local strength = math.max(0, math.min(tonumber(safety.maximumOutput) or 15, tonumber(request.strength) or 0))
+          local okAirship, value = setAirshipVerticalOutput(config, strength)
+          response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
         elseif request.command == "monitor-list" then
           response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
         elseif request.command == "monitor-set" then
@@ -1220,6 +1285,59 @@ local function server(config, debug)
           saveMode("standby")
           clearOutputs(config)
           response = { ok = true }
+        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
+          config.hardware = type(config.hardware) == "table" and config.hardware or {}
+          if tostring(request.mode or "") == "airship" then
+            config.hardware.airshipMode = request.enabled == true
+            saveConfig(config)
+            response = { ok = true, hardware = { modes = { airship = config.hardware.airshipMode == true } } }
+          else
+            response = { ok = false, error = "invalid hardware mode" }
+          end
+        elseif request.command == "skip-stop" then
+          local active = loadActiveSchedule()
+          if active then
+            local schedules = loadSchedules()
+            local schedule = schedules[active.name]
+            if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
+              active.dwellIndex = nil
+              active.dwellUntil = nil
+              if active.index >= #schedule.stops then
+                if schedule.loop then
+                  active.index = 1
+                else
+                  saveActiveSchedule(nil)
+                  saveMode("standby")
+                  clearOutputs(config)
+                  response = { ok = true, status = "complete" }
+                end
+              else
+                active.index = active.index + 1
+              end
+              if response.ok == nil then
+                saveActiveSchedule(active)
+                saveTarget(schedule.stops[active.index])
+                saveMode("navigate")
+                response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
+              end
+            else
+              response = { ok = false, error = "no active schedule" }
+            end
+          else
+            response = { ok = false, error = "no active schedule" }
+          end
+        elseif request.command == "pause-schedule" then
+          saveMode("standby")
+          pendingClearOutputs = true
+          response = { ok = true }
+        elseif request.command == "resume-schedule" then
+          local active = loadActiveSchedule()
+          if active then
+            saveMode("navigate")
+            response = { ok = true }
+          else
+            response = { ok = false, error = "no active schedule" }
+          end
         elseif request.command == "stop" or request.command == "outputs-off" then
           manualUntil = {}
           automationOutputController(nil, true)
