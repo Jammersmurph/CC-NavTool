@@ -184,7 +184,14 @@ local function controlTick()
       else
         airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
-        if guidance.finalCapture then
+        local finalHeadingReached = true
+        if guidance.finalHeading then
+          local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
+          local headingTolerance = math.rad(math.max(0, tonumber((config.navigation or {}).headingTolerance) or 4))
+          finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
+          if guidance.finalCapture then headingError = finalHeadingError end
+        end
+        if guidance.finalCapture and finalHeadingReached then
           headingPID:reset()
         else
           local yaw = headingPID:update(headingError or 0, dt)
@@ -192,7 +199,10 @@ local function controlTick()
         end
 
         local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
-        if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+        local holdDescentForHeading = guidance.finalCapture and guidance.finalHeading and not finalHeadingReached and (guidance.altitudeError or 0) < 0
+        if holdDescentForHeading then
+          altitudePID:reset()
+        elseif guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
           altitudePID:reset()
         else
           local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
