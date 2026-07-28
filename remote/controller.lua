@@ -3,6 +3,31 @@ local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
 
+local CARDINAL_TO_DEGREES = {
+  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
+}
+local DEGREES_TO_CARDINAL = {
+  [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
+  [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
+}
+
+local function cardinalToDegrees(input)
+  if input == nil or input == "" then return nil end
+  local key = tostring(input):lower()
+  return CARDINAL_TO_DEGREES[key]
+end
+
+local function degreesToCardinal(degrees)
+  degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
+  local best, bestDist = "N", 360
+  for deg, label in pairs(DEGREES_TO_CARDINAL) do
+    local dist = math.abs(degrees - deg)
+    if dist > 180 then dist = 360 - dist end
+    if dist < bestDist then best, bestDist = label, dist end
+  end
+  return best
+end
+
 local config = dofile(CONFIG_PATH)
 config.profiles = type(config.profiles) == "table" and config.profiles or {}
 config.activeProfile = config.activeProfile or next(config.profiles)
@@ -187,7 +212,12 @@ local function targetsPage(data)
     elseif key==keys.a then
       local name=prompt("Target name")
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
-      if name and name~="" and x and y and z then data.targets[name]={name=name,x=x,y=y,z=z}; saveData(data) end
+      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
+      if name and name~="" and x and y and z then
+        local target={name=name,x=x,y=y,z=z}
+        if heading then target.heading=heading end
+        data.targets[name]=target; saveData(data)
+      end
     elseif key==keys.g then
       local name=prompt("Target to activate")
       if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Target not found" end
@@ -206,12 +236,17 @@ local function createPath(data,kind)
   for i=1,math.floor(count) do
     local saved=prompt("Stop "..i.." saved target (blank=coords)","")
     if saved~="" and data.targets[saved] then
-      local t=data.targets[saved]; stops[#stops+1]={name=t.name,x=t.x,y=t.y,z=t.z}
+      local t=data.targets[saved]; local stop={name=t.name,x=t.x,y=t.y,z=t.z}
+      if t.heading then stop.heading=t.heading end
+      stops[#stops+1]=stop
     else
       local label=prompt("Stop "..i.." label","Stop "..i)
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
+      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
       if not x or not y or not z then return end
-      stops[#stops+1]={name=label,x=x,y=y,z=z}
+      local stop={name=label,x=x,y=y,z=z}
+      if heading then stop.heading=heading end
+      stops[#stops+1]=stop
     end
   end
   local item={name=name,stops=stops}
