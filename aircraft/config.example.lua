@@ -36,7 +36,7 @@ return {
     verticalTolerance = 0.05,
     settleVelocity = 0.5,
     arrivalRadius = 1,
-    brakeRadius = 75,
+    brakeRadius = 10,
     finalOutputRadius = 10,
     headingTolerance = 4,
     airshipArrivalRadius = 6,
@@ -79,6 +79,7 @@ return {
     enabled = true,
     interval = 0.05,
     minimumThrustAlignment = 0.985,
+    cruiseThrust = 0.45,
     hoverVelocityGain = 0.18,
     headingPID = {
       kp = 1.6, ki = 0.02, kd = 0.45,
