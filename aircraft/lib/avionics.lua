@@ -97,6 +97,19 @@ local function rotate(q, value)
   }
 end
 
+local function rotateLocalYaw(value, degrees)
+  value = vector(value)
+  degrees = tonumber(degrees) or 0
+  if not value or degrees == 0 then return value end
+  local radians = math.rad(degrees)
+  local sinValue, cosValue = math.sin(radians), math.cos(radians)
+  return {
+    x = value.x * cosValue + value.z * sinValue,
+    y = value.y,
+    z = value.z * cosValue - value.x * sinValue,
+  }
+end
+
 local function horizontalHeading(degrees, format, offset)
   degrees = tonumber(degrees)
   if not degrees then return nil end
@@ -119,7 +132,7 @@ local function attitudeFromPose(rawPose, orientation)
   local q = quaternion(rawPose.orientation or rawPose.rotation or rawPose.quaternion)
   if not q then return nil end
 
-  local localForward = normalize(orientation.forward or { x = 0, y = 0, z = 1 })
+  local localForward = normalize(rotateLocalYaw(orientation.forward or { x = 0, y = 0, z = 1 }, orientation.yawOffset))
   local localUp = normalize(orientation.up or { x = 0, y = 1, z = 0 })
   if not localForward or not localUp then return nil end
   local localRight = normalize(cross(localForward, localUp))

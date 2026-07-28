@@ -16,7 +16,7 @@ return {
   monitorPeripheral = nil,
 
   safety = {
-    maximumOutput = 5,
+    maximumOutput = 15,
     maximumRemotePulse = 2.0,
     disengageOnTelemetryLoss = true,
     clearOutputsOnExit = true,
@@ -29,17 +29,23 @@ return {
     precisionRadius = 3,
     coordinateTolerance = 0.05,
     verticalTolerance = 0.05,
-    settleVelocity = 0.05,
-    arrivalRadius = 5,
+    settleVelocity = 0.5,
+    arrivalRadius = 1,
+    brakeRadius = 75,
+    headingTolerance = 4,
+    finalOutputMaximum = 2,
+    finalVerticalRadius = 25,
+    finalVerticalOutputMaximum = 2,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:
-    -- While outside the horizontal transition radius, fly at Y=300.
-    -- Horizontal travel waits until the aircraft is within this tolerance of Y=300.
+    -- While outside the horizontal transition radius, enter the cruise band via Y=350.
+    -- Once inside the band, horizontal travel holds current altitude to avoid bobbing.
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
-    cruiseAltitude = 300,
-    cruiseAltitudeTolerance = 0.5,
+    cruiseAltitude = 310,
+    cruiseAltitudeMinimum = 300,
+    cruiseAltitudeMaximum = 500,
     verticalTransitionRadius = 3,
     followHorizontalRadius = 10,
     followHeightOffset = 10,
@@ -52,6 +58,9 @@ return {
     steeringDeadband = 0.12,
     steeringScale = 0.8,
     steeringInvert = false,
+    pulseAutomationOutputs = true,
+    outputPulsePeriod = 0.4,
+    outputPulseWidth = 0.3,
     outputHoldAfter = 0.6,
     outputPulseReleaseGrace = 0.25,
     outputHoldReleaseGrace = 1.0,
@@ -59,7 +68,7 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.75,
+    minimumThrustAlignment = 0.65,
     hoverVelocityGain = 0.18,
     headingPID = {
       kp = 1.6, ki = 0.02, kd = 0.45,
@@ -103,6 +112,7 @@ return {
     -- Mount the computer screen toward the ship's intended forward direction.
     forward = { x = 0, y = 0, z = 1 },
     up = { x = 0, y = 1, z = 0 },
+    yawOffset = 0,
   },
   network = {
     enabled = false,
