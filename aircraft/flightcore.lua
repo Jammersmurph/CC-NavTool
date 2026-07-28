@@ -199,10 +199,7 @@ local function controlTick()
         end
 
         local airshipCruiseGate = guidance.airshipMode and guidance.altitudePhase == "horizontal-cruise"
-        local holdDescentForHeading = guidance.finalCapture and guidance.finalHeading and not finalHeadingReached and (guidance.altitudeError or 0) < 0
-        if holdDescentForHeading then
-          altitudePID:reset()
-        elseif guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
+        if guidance.altitudePhase == "horizontal-cruise" and guidance.cruiseAltitudeReady then
           altitudePID:reset()
         else
           local vertical = altitudePID:update(guidance.altitudeError or 0, dt, state.verticalSpeed)
