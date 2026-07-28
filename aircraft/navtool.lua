@@ -1300,6 +1300,7 @@ local function server(config, debug)
             local schedules = loadSchedules()
             local schedule = schedules[active.name]
             if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
+              local completed = false
               active.dwellIndex = nil
               active.dwellUntil = nil
               if active.index >= #schedule.stops then
@@ -1310,11 +1311,12 @@ local function server(config, debug)
                   saveMode("standby")
                   clearOutputs(config)
                   response = { ok = true, status = "complete" }
+                  completed = true
                 end
               else
                 active.index = active.index + 1
               end
-              if response.ok == nil then
+              if not completed then
                 saveActiveSchedule(active)
                 saveTarget(schedule.stops[active.index])
                 if active.paused == true then saveMode("standby") else saveMode("navigate") end
