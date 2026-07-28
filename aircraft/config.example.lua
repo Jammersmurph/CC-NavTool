@@ -31,7 +31,7 @@ return {
     verticalTolerance = 0.05,
     settleVelocity = 0.5,
     arrivalRadius = 5,
-    brakeRadius = 25,
+    brakeRadius = 75,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:

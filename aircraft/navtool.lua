@@ -34,8 +34,8 @@ local function loadConfig()
     config.navigation.settleVelocity = 0.5
     config._migrated = true
   end
-  if type(config.navigation) == "table" and config.navigation.brakeRadius == nil then
-    config.navigation.brakeRadius = 25
+  if type(config.navigation) == "table" and (config.navigation.brakeRadius == nil or tonumber(config.navigation.brakeRadius) == 25) then
+    config.navigation.brakeRadius = 75
     config._migrated = true
   end
   return config
