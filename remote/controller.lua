@@ -409,7 +409,9 @@ local function manualPage()
   end
 
   local statusResponse = request("airship-vertical-status")
-  local vertical=math.max(0,math.min(15,tonumber(statusResponse and statusResponse.value) or 2))
+  local currentVertical = tonumber(statusResponse and statusResponse.value)
+    or tonumber(hardwareResponse and hardwareResponse.hardware and hardwareResponse.hardware.modes and hardwareResponse.hardware.modes.airshipVertical)
+  local vertical=math.max(0,math.min(15,currentVertical or 2))
   local function sendVertical()
     local ok,err=request("airship-vertical-control",{strength=vertical})
     if ok then message="Vertical analog "..tostring(vertical)

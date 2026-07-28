@@ -32,6 +32,12 @@ function Patch.apply(source)
           local description = Hardware.describe(config)
           description.modes = description.modes or {}
           description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+          if description.modes.airshipVertical == nil then
+            local output = type(config.outputs) == "table" and (config.outputs.up or config.outputs.down) or nil
+            local target = type(output) == "table" and (type(output.targets) == "table" and output.targets[1] or output) or nil
+            local okValue, value = target and target.side and pcall(redstone.getAnalogOutput, target.side)
+            if okValue then description.modes.airshipVertical = tonumber(value) or 0 end
+          end
           response = { ok = true, hardware = description }
         elseif request.command == "hardware-assign" then
           local okAssign, result = Hardware.assign(config, request)
