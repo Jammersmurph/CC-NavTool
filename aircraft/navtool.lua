@@ -1610,14 +1610,17 @@ local function stopReached(config, state, stop)
   if not position or type(stop) ~= "table" then return false end
   local horizontalTolerance = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
   local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or tonumber(navigation.coordinateTolerance) or 0.05)
-  if type(config.hardware) == "table" and config.hardware.airshipMode == true then
+  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
+  if airshipMode then
     horizontalTolerance = math.max(horizontalTolerance, tonumber(navigation.airshipArrivalRadius) or 6)
     verticalTolerance = math.max(verticalTolerance, tonumber(navigation.airshipVerticalTolerance) or 8)
   end
   local dx = (tonumber(stop.x) or position.x) - position.x
   local dy = (tonumber(stop.y) or position.y) - position.y
   local dz = (tonumber(stop.z) or position.z) - position.z
-  return math.sqrt(dx * dx + dz * dz) <= horizontalTolerance and math.abs(dy) <= verticalTolerance
+  local horizontalReached = math.sqrt(dx * dx + dz * dz) <= horizontalTolerance
+  if airshipMode then return horizontalReached end
+  return horizontalReached and math.abs(dy) <= verticalTolerance
 end
 
 local function advanceScheduleStop(config, active, schedule, index, state)
