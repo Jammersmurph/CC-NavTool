@@ -218,6 +218,12 @@ function Control:outputs(state)
     else
       self:setAxis(commands, self.altitude:update(guidance.altitudeError or 0, dt, verticalSpeed), "up", "down", "altitude", false)
     end
+    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 10) then
+      local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
+      commands.up = math.min(commands.up or 0, limit)
+      commands.down = math.min(commands.down or 0, limit)
+      notes[#notes + 1] = "final up/down cap " .. tostring(limit)
+    end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
