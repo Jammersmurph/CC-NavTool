@@ -8,6 +8,7 @@ local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
+local ScheduleDirector = dofile(ROOT .. "/lib/flight_director.lua")
 
 local CARDINAL_TO_DEGREES = {
   n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
@@ -1101,6 +1102,8 @@ snapshot = function(config, options)
   }
 end
 
+local setScheduleStop
+
 local function server(config, debug)
   if not config.network or not config.network.enabled then
     printError("Networking is disabled in /navtool/config.lua")
@@ -1319,9 +1322,7 @@ local function server(config, debug)
                 active.index = currentIndex + 1
               end
               if not completed then
-                saveTarget(schedule.stops[active.index])
-                saveMode("navigate")
-                saveActiveSchedule(active)
+                setScheduleStop(active, schedule, active.index)
                 response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
               end
             else
@@ -1609,22 +1610,18 @@ local function nowSeconds()
 end
 
 local function stopReached(config, state, stop)
-  local navigation = type(config.navigation) == "table" and config.navigation or {}
-  local position = extractVector(state and state.position)
-  if not position or type(stop) ~= "table" then return false end
-  local horizontalTolerance = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
-  local verticalTolerance = math.max(horizontalTolerance, tonumber(navigation.verticalTolerance) or tonumber(navigation.coordinateTolerance) or 0.05)
-  local airshipMode = type(config.hardware) == "table" and config.hardware.airshipMode == true
-  if airshipMode then
-    horizontalTolerance = math.max(horizontalTolerance, tonumber(navigation.airshipArrivalRadius) or 6)
-    verticalTolerance = math.max(verticalTolerance, tonumber(navigation.airshipVerticalTolerance) or 8)
-  end
-  local dx = (tonumber(stop.x) or position.x) - position.x
-  local dy = (tonumber(stop.y) or position.y) - position.y
-  local dz = (tonumber(stop.z) or position.z) - position.z
-  local horizontalReached = math.sqrt(dx * dx + dz * dz) <= horizontalTolerance
-  if airshipMode then return horizontalReached end
-  return horizontalReached and math.abs(dy) <= verticalTolerance
+  if type(stop) ~= "table" then return false end
+  local ok, arrived = pcall(ScheduleDirector.arrivalStatus, state, stop, config)
+  return ok and arrived == true
+end
+
+setScheduleStop = function(active, schedule, index)
+  active.index = index
+  active.dwellIndex = nil
+  active.dwellUntil = nil
+  saveTarget(schedule.stops[index])
+  saveMode("navigate")
+  saveActiveSchedule(active)
 end
 
 local function advanceScheduleStop(config, active, schedule, index, state)
@@ -1654,10 +1651,7 @@ local function advanceScheduleStop(config, active, schedule, index, state)
   active.dwellUntil = nil
   if index >= #schedule.stops then
     if schedule.loop == true then
-      active.index = 1
-      saveActiveSchedule(active)
-      saveTarget(schedule.stops[1])
-      saveMode("navigate")
+      setScheduleStop(active, schedule, 1)
       return true, "loop"
     end
     saveActiveSchedule(nil)
@@ -1666,10 +1660,7 @@ local function advanceScheduleStop(config, active, schedule, index, state)
     return true, "complete"
   end
 
-  active.index = index + 1
-  saveActiveSchedule(active)
-  saveTarget(schedule.stops[active.index])
-  saveMode("navigate")
+  setScheduleStop(active, schedule, index + 1)
   return true, "advance"
 end
 
