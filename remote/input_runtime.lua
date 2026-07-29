@@ -116,7 +116,7 @@ local injected = table.concat({
   '    end',
   '    if action=="radius" then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5',
   '    elseif action=="strength" then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))',
-  '    elseif action=="monitor" then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry and refresh then refresh(data,true) elseif clearLocalMonitors then clearLocalMonitors() end',
+  '    elseif action=="monitor" then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry then if renderMonitorTelemetry then renderMonitorTelemetry(data) end; if refresh then refresh(data,true) end elseif clearLocalMonitors then clearLocalMonitors() end',
   '    elseif action=="update" then',
   '      if confirm("Update NavRemote and reboot") then',
   '        saveData(data)',
