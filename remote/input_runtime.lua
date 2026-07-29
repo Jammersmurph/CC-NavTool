@@ -145,7 +145,7 @@ local injected = table.concat({
   '  elseif id=="routes" then pathPage(data,"Route")',
   '  elseif id=="schedules" then schedulePage(data)',
   '  elseif id=="modes" then modesPage(data)',
-  '  elseif id=="manual" then manualPage()',
+  '  elseif id=="manual" then manualPage(data)',
   '  elseif id=="profiles" then profilesPage()',
   '  elseif id=="logs" then logsPage(data)',
   '  elseif id=="settings" then settingsPage(data)',
