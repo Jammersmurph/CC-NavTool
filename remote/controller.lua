@@ -282,7 +282,7 @@ end
 
 local function targetsPage(data)
   while true do
-    listPage("Targets",data.targets,"A:add  G:go  D:delete  Esc:back")
+    listPage("Targets",data.targets,"A:add  E:edit  G:go  D:delete  Esc:back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then return
     elseif key==keys.a then
@@ -292,6 +292,21 @@ local function targetsPage(data)
         local target={name=name,x=x,y=y,z=z}
         data.targets[name]=target; saveData(data)
       end
+    elseif key==keys.e then
+      local name=prompt("Target to edit")
+      local target=data.targets[name]
+      if target then
+        local newName=prompt("Target name",target.name or name)
+        local x=tonumber(prompt("X",target.x)); local y=tonumber(prompt("Y",target.y)); local z=tonumber(prompt("Z",target.z))
+        if newName and newName~="" and x and y and z then
+          data.targets[name]=nil
+          data.targets[newName]={name=newName,x=x,y=y,z=z}
+          saveData(data)
+          message="Edited target: "..newName
+        else
+          message="Invalid target"
+        end
+      else message="Target not found" end
     elseif key==keys.g then
       local name=prompt("Target to activate")
       if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Target not found" end
