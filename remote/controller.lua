@@ -178,6 +178,39 @@ local function headingText(status)
   return degrees and (string.format("%.0f", degrees) .. " " .. degreesToCardinal(degrees)) or "n/a"
 end
 
+local function scheduleSummary(status)
+  status = status or {}
+  local active = status.activeSchedule
+  if not active then return nil end
+  local schedules = type(status.schedules) == "table" and status.schedules or {}
+  local schedule = schedules[active.name] or {}
+  local stops = type(schedule.stops) == "table" and schedule.stops or {}
+  local index = math.max(1, math.min(#stops > 0 and #stops or 1, tonumber(active.index) or 1))
+  local stop = stops[index] or status.target
+  local nextIndex = index + 1
+  if nextIndex > #stops and schedule.loop then nextIndex = 1 end
+  local nextStop = stops[nextIndex]
+  local arrival = status.scheduleArrival or {}
+  local departIn = active.dwellUntil and math.max(0, math.ceil((tonumber(active.dwellUntil) or 0) - nowSeconds())) or nil
+  local phase = active.paused and "Paused" or departIn and "Dwelling" or arrival.arrived and "Arrived" or arrival.axesReached and "Settling" or "En route"
+  return {
+    active = active,
+    schedule = schedule,
+    stop = stop,
+    nextStop = nextStop,
+    index = index,
+    total = #stops > 0 and #stops or "?",
+    phase = phase,
+    departIn = departIn,
+    distance = status.distanceToTarget,
+    arrival = arrival,
+  }
+end
+
+local function stopName(stop, fallback)
+  return tostring((type(stop) == "table" and stop.name) or fallback or "?")
+end
+
 function renderMonitorTelemetry(data)
   data = data or {}
   local prefs = type(data.preferences) == "table" and data.preferences or {}
@@ -201,7 +234,7 @@ function renderMonitorTelemetry(data)
         monitor.write(string.sub(tostring(value or "n/a"), 1, math.max(1, width - 13)))
       end
       local target = status.target or {}
-      local schedule = status.activeSchedule and (tostring(status.activeSchedule.name or "?") .. " #" .. tostring(status.activeSchedule.index or 1)) or "none"
+      local schedule = scheduleSummary(status)
       monitor.setTextColor(colors.lime)
       monitor.write("NavRemote Flight")
       line(3, "Mode", status.mode or "n/a", colors.cyan)
@@ -210,8 +243,17 @@ function renderMonitorTelemetry(data)
       line(6, "Distance", status.distanceToTarget and string.format("%.1f", status.distanceToTarget) or "n/a", colors.yellow)
       line(7, "Altitude", status.altitude or (status.position and status.position.y) or "n/a")
       line(8, "Heading", headingText(status))
-      line(9, "Schedule", schedule)
-      line(10, "Source", status.source or status.peripheral or "n/a")
+      if schedule then
+        line(9, "Schedule", tostring(schedule.active.name or "?") .. " " .. tostring(schedule.index) .. "/" .. tostring(schedule.total), colors.lime)
+        line(10, "Phase", schedule.phase, schedule.departIn and colors.yellow or colors.cyan)
+        line(11, "Stop", stopName(schedule.stop, "Stop " .. tostring(schedule.index)))
+        line(12, "Next", schedule.nextStop and stopName(schedule.nextStop) or "complete")
+        line(13, "Depart", schedule.departIn and (tostring(schedule.departIn) .. "s") or "n/a", colors.yellow)
+        line(14, "Arrive", schedule.arrival.arrived and "yes" or "no", schedule.arrival.arrived and colors.lime or colors.lightGray)
+      else
+        line(9, "Schedule", "none")
+        line(10, "Source", status.source or status.peripheral or "n/a")
+      end
     end
   end
 end
@@ -432,27 +474,31 @@ local function schedulePage(data)
     clear(colors.black); header("Schedules")
     local y=3
     if active then
-      local arrival=status.scheduleArrival or {}
+      local summary=scheduleSummary(status) or {}
+      local arrival=summary.arrival or status.scheduleArrival or {}
       fill(1,y,w,5,colors.gray)
       writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
       writeAt(2,y,tostring(active.name or "?"),colors.lime)
-      writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
+      writeAt(25,y,"Stop "..tostring(summary.index or active.index or 1).."/"..tostring(summary.total or "?"),colors.white)
       if active.paused then writeAt(35,y,"PAUSED",colors.yellow) end
-      if active.dwellUntil then
-        local remaining=math.max(0,math.ceil((tonumber(active.dwellUntil) or 0)-nowSeconds()))
-        writeAt(35,y,"Depart in "..tostring(remaining).."s",colors.yellow)
+      if summary.departIn then
+        writeAt(35,y,"Depart in "..tostring(summary.departIn).."s",colors.yellow)
       elseif arrival.arrived then
         writeAt(35,y,"ARRIVED",colors.lime)
       elseif arrival.axesReached then
         writeAt(35,y,"SETTLING",colors.yellow)
       end
       y=y+1
-      local reached=arrival.arrived and "ARRIVED" or (arrival.axesReached and "At coords, settling" or "Traveling")
-      writeAt(2,y,"Status: "..reached,arrival.arrived and colors.lime or colors.lightGray)
-      if active.dwellUntil then
-        local remaining=math.max(0,math.ceil((tonumber(active.dwellUntil) or 0)-nowSeconds()))
-        writeAt(25,y,"Departure countdown: "..tostring(remaining).."s",colors.yellow)
+      writeAt(2,y,"Status: "..tostring(summary.phase or "Traveling"),arrival.arrived and colors.lime or colors.lightGray)
+      if status.distanceToTarget then writeAt(18,y,"Dist "..string.format("%.1f",status.distanceToTarget),colors.yellow) end
+      if summary.departIn then
+        writeAt(30,y,"Depart "..tostring(summary.departIn).."s",colors.yellow)
+      elseif summary.nextStop then
+        writeAt(30,y,"Next: "..string.sub(stopName(summary.nextStop),1,12),colors.lightGray)
       end
+      y=y+1
+      if summary.stop then writeAt(2,y,"Current: "..string.sub(stopName(summary.stop),1,16),colors.cyan) end
+      if summary.nextStop then writeAt(25,y,"Next: "..string.sub(stopName(summary.nextStop),1,16),colors.lightGray) end
       y=y+1
       local schedule=schedules[active.name]
       if schedule and schedule.stops then
@@ -646,11 +692,20 @@ local function dashboard(data)
   writeAt(3,17,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,17,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,17,string.format("Z %8.2f",tonumber(v.z) or 0))
   local active=status.activeSchedule
   if active then
-    writeAt(3,19,"Active Schedule",colors.cyan)
-    writeAt(15,19,tostring(active.name or "?").." stop "..tostring(active.index or 1),colors.lime)
+    local summary=scheduleSummary(status) or {}
+    writeAt(3,18,"Schedule",colors.cyan)
+    writeAt(15,18,tostring(active.name or "?").." "..tostring(summary.index or active.index or 1).."/"..tostring(summary.total or "?"),colors.lime)
+    writeAt(3,19,"Sched Status",colors.cyan)
+    writeAt(15,19,tostring(summary.phase or "En route"),summary.departIn and colors.yellow or colors.white)
+    if summary.departIn then writeAt(29,19,"Depart "..tostring(summary.departIn).."s",colors.yellow) end
+    writeAt(3,20,"Current",colors.cyan)
+    writeAt(15,20,stopName(summary.stop,"Stop "..tostring(summary.index or active.index or 1)),colors.white)
+    writeAt(3,21,"Next",colors.cyan)
+    writeAt(15,21,summary.nextStop and stopName(summary.nextStop) or "complete",colors.lightGray)
+  else
+    writeAt(3,21,"Monitor",colors.cyan)
+    writeAt(15,21,status.peripheral or status.sublevel or "none")
   end
-  writeAt(3,21,"Monitor",colors.cyan)
-  writeAt(15,21,status.peripheral or status.sublevel or "none")
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
   footer(help)

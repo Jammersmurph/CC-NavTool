@@ -1038,6 +1038,10 @@ snapshot = function(config, options)
   if includeLibrary then waypoints, names = waypointList() else waypoints, names = {}, {} end
   if includeLibrary then schedules, scheduleNames = scheduleList() else schedules, scheduleNames = {}, {} end
   local activeSchedule = includeSchedule and loadActiveSchedule() or nil
+  if includeSchedule and activeSchedule and not includeLibrary then
+    local allSchedules = loadSchedules()
+    schedules = allSchedules[activeSchedule.name] and { [activeSchedule.name] = allSchedules[activeSchedule.name] } or {}
+  end
   local mode = loadMode().mode or "standby"
   local heading, headingSource, rawOrientation = orientationHeading(config, orientationPeripheral)
   if avionicsState and avionicsState.heading then
@@ -1162,7 +1166,7 @@ local function server(config, debug)
         if request.command == "ping" then
           response = { ok = true, pong = true, id = os.getComputerID and os.getComputerID() or nil }
         elseif request.command == "live-status" then
-          response = { ok = true, data = snapshot(config, { library = false, schedule = false, gps = false }) }
+          response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
         elseif request.command == "set-target" and type(request.target) == "table" then
