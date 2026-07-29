@@ -184,14 +184,17 @@ local function controlTick()
       else
         airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
+        local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
         local finalHeadingReached = true
         if guidance.finalHeading then
           local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
           local headingTolerance = math.rad(math.max(0, tonumber((config.navigation or {}).headingTolerance) or 4))
           finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
-          if guidance.finalCapture then headingError = finalHeadingError end
+          if guidance.finalCapture and not holdYawForAltitude then headingError = finalHeadingError end
         end
-        if guidance.finalCapture and finalHeadingReached then
+        if holdYawForAltitude then
+          headingPID:reset()
+        elseif guidance.finalCapture and finalHeadingReached then
           headingPID:reset()
         else
           local yaw = headingPID:update(headingError or 0, dt)
@@ -218,7 +221,7 @@ local function controlTick()
           commands.down = math.min(commands.down or 0, normalizedLimit)
         end
 
-        local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
+        local headingAlignment = holdYawForAltitude and 1 or (guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0)
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
         if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
