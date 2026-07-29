@@ -137,12 +137,83 @@ local function refresh(data,silent)
   local response,err = request("live-status")
   if response then
     data.lastStatus = response.data
+    renderMonitorTelemetry(data)
     if not silent then Storage.log(data,"INFO","Telemetry refreshed") end
     saveData(data)
     return response.data
   end
   if not silent then Storage.log(data,"WARN",err); saveData(data) end
   return data.lastStatus,err
+end
+
+local function monitorNames()
+  local names = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "monitor" then names[#names + 1] = name end
+  end
+  return names
+end
+
+local function formatVector(value)
+  if type(value) ~= "table" then return "n/a" end
+  return string.format("%.1f %.1f %.1f", tonumber(value.x) or 0, tonumber(value.y) or 0, tonumber(value.z) or 0)
+end
+
+local function clearLocalMonitors()
+  for _, name in ipairs(monitorNames()) do
+    local monitor = peripheral.wrap(name)
+    if monitor then
+      monitor.setBackgroundColor(colors.black)
+      monitor.setTextColor(colors.white)
+      monitor.clear()
+      monitor.setCursorPos(1, 1)
+    end
+  end
+end
+
+local function headingText(status)
+  local degrees = tonumber(status and status.headingDegrees)
+  local heading = status and status.heading
+  if not degrees and type(heading) == "table" and heading.x and heading.z then degrees = math.deg(math.atan2(heading.x, heading.z or 0)) end
+  return degrees and (string.format("%.0f", degrees) .. " " .. degreesToCardinal(degrees)) or "n/a"
+end
+
+function renderMonitorTelemetry(data)
+  data = data or {}
+  local prefs = type(data.preferences) == "table" and data.preferences or {}
+  if prefs.monitorTelemetry ~= true then return end
+  local status = data.lastStatus or {}
+  for _, name in ipairs(monitorNames()) do
+    local monitor = peripheral.wrap(name)
+    if monitor then
+      pcall(monitor.setTextScale, 0.5)
+      monitor.setBackgroundColor(colors.black)
+      monitor.setTextColor(colors.white)
+      monitor.clear()
+      monitor.setCursorPos(1, 1)
+      local width = monitor.getSize()
+      local function line(y, label, value, color)
+        monitor.setCursorPos(1, y)
+        monitor.setTextColor(colors.lightGray)
+        monitor.write(string.sub(label, 1, 12))
+        monitor.setCursorPos(14, y)
+        monitor.setTextColor(color or colors.white)
+        monitor.write(string.sub(tostring(value or "n/a"), 1, math.max(1, width - 13)))
+      end
+      local target = status.target or {}
+      local schedule = status.activeSchedule and (tostring(status.activeSchedule.name or "?") .. " #" .. tostring(status.activeSchedule.index or 1)) or "none"
+      monitor.setTextColor(colors.lime)
+      monitor.write("NavRemote Flight")
+      line(3, "Mode", status.mode or "n/a", colors.cyan)
+      line(4, "Position", formatVector(status.position))
+      line(5, "Target", formatVector(target))
+      line(6, "Distance", status.distanceToTarget and string.format("%.1f", status.distanceToTarget) or "n/a", colors.yellow)
+      line(7, "Altitude", status.altitude or (status.position and status.position.y) or "n/a")
+      line(8, "Heading", headingText(status))
+      line(9, "Schedule", schedule)
+      line(10, "Source", status.source or status.peripheral or "n/a")
+    end
+  end
 end
 
 local function iconPosition(index)
@@ -561,13 +632,15 @@ local function settingsPage(data)
     writeAt(3,4,"1. Arrival radius",colors.cyan); writeAt(25,4,tostring(data.preferences.arrivalRadius or 5))
     writeAt(3,5,"2. Auto refresh",colors.cyan); writeAt(25,5,data.preferences.autoRefresh==false and "off" or "on")
     writeAt(3,6,"3. Manual strength",colors.cyan); writeAt(25,6,tostring(data.preferences.manualStrength or 2))
-    writeAt(3,8,"Connection values are edited in Profiles.",colors.lightGray)
-    footer("1-3: edit  Esc: back")
+    writeAt(3,7,"4. Monitor telemetry",colors.cyan); writeAt(25,7,data.preferences.monitorTelemetry==true and "on" or "off")
+    writeAt(3,9,"Connection values are edited in Profiles.",colors.lightGray)
+    footer("1-4: edit  Esc: back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then saveData(data); return
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
-    elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2)) end
+    elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
+    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if not data.preferences.monitorTelemetry then clearLocalMonitors() end end
     saveData(data)
   end
 end
