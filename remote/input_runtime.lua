@@ -101,7 +101,7 @@ local injected = table.concat({
   '    fill(3,11,18,3,colors.gray); writeAt(8,12,"UPDATE",colors.white,colors.gray)',
   '    fill(24,11,18,3,colors.red); writeAt(28,12,"UNINSTALL",colors.white,colors.red)',
   '    footer("Click buttons or U:update  D:uninstall  Q:back")',
-  '    local event,a,b,c=os.pullEvent()',
+  '    local event,a,b,c=os.pullEventRaw()',
   '    local action=nil',
   '    if event=="key" then',
   '      if a==keys.q then saveData(data); return',
@@ -160,7 +160,7 @@ local injected = table.concat({
   'local dispatchPos = source:find(dispatchAnchor, 1, true)',
   'if dispatchPos then source = source:sub(1,dispatchPos-1)..uiBridge.."\\n"..pageDispatcher.."\\n\\n"..source:sub(dispatchPos) end',
   '',
-  'source = select(1, replacePlainOnce(source, "local event,a=os.pullEvent()", "local event,a,b,c=os.pullEvent()"))',
+  'source = select(1, replacePlainOnce(source, "local event,a=os.pullEvent()", "local event,a,b,c=os.pullEventRaw()"))',
   'source = select(1, replacePlainOnce(source, "local refreshTimer=os.startTimer(1)", "local refreshTimer=os.startTimer(5)"))',
   'source = source:gsub("elseif key==keys%.left and selected>1 then selected=selected%-1", "elseif key==keys.left and (selected-1)%%4>0 then selected=selected-1", 1)',
   'source = source:gsub("elseif key==keys%.right and selected<#icons then selected=selected%+1", "elseif key==keys.right and selected<#icons and selected%%4~=0 then selected=selected+1", 1)',
@@ -189,6 +189,7 @@ local injected = table.concat({
   '  elseif event=="key" then',
   '    local key=a]]',
   'source = select(1, replacePlainOnce(source, keyAnchor, mouseBranch))',
+  'source = source:gsub("os%.pullEvent%(%)", "os.pullEventRaw()")',
 }, "\n")
 
 local anchor = "if count < 4 then"
