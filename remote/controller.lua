@@ -330,6 +330,53 @@ local function createPath(data,kind)
   map[name]=item; saveData(data)
 end
 
+local function promptStop(data,index)
+  local saved=prompt("Stop "..tostring(index).." saved target (blank=coords)","")
+  if saved~="" and data.targets[saved] then
+    local t=data.targets[saved]
+    return {name=t.name,x=t.x,y=t.y,z=t.z}
+  end
+  local label=prompt("Stop "..tostring(index).." label","Stop "..tostring(index))
+  local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
+  if not x or not y or not z then return nil end
+  return {name=label,x=x,y=y,z=z}
+end
+
+local function saveScheduleEdit(data,schedule)
+  if not schedule or not schedule.name then return false,"Schedule not found" end
+  local ok,err=request("save-schedule",{schedule=schedule})
+  if not ok then return false,"Schedule save failed: "..tostring(err) end
+  data.schedules[schedule.name]=schedule
+  saveData(data)
+  return true
+end
+
+local function addStopToSchedule(data,schedules)
+  local name=prompt("Schedule to edit")
+  local schedule=name and schedules[name]
+  if not schedule then message="Schedule not found"; return end
+  schedule.stops=type(schedule.stops)=="table" and schedule.stops or {}
+  local stop=promptStop(data,#schedule.stops+1)
+  if not stop then message="Invalid stop"; return end
+  schedule.stops[#schedule.stops+1]=stop
+  local ok,err=saveScheduleEdit(data,schedule)
+  message=ok and ("Added stop to "..name) or err
+end
+
+local function removeStopFromSchedule(data,schedules)
+  local name=prompt("Schedule to edit")
+  local schedule=name and schedules[name]
+  if not schedule or type(schedule.stops)~="table" then message="Schedule not found"; return end
+  local index=tonumber(prompt("Stop number to remove"))
+  if not index or index<1 or index>#schedule.stops then message="Invalid stop number"; return end
+  if #schedule.stops<=1 then message="Schedule needs at least one stop"; return end
+  local stop=schedule.stops[index]
+  if not confirm("Remove "..tostring(stop.name or ("stop "..index))) then return end
+  table.remove(schedule.stops,index)
+  local ok,err=saveScheduleEdit(data,schedule)
+  message=ok and ("Removed stop from "..name) or err
+end
+
 local function runPath(data,kind,name)
   local map=kind=="Route" and data.routes or data.schedules
   local item=map[name]
@@ -346,6 +393,7 @@ local function schedulePage(data)
     local status=response and response.data or {}
     local active=status.activeSchedule
     local schedules=status.schedules or data.schedules or {}
+    data.schedules=schedules
     local names=Storage.names(schedules)
     local w,h=term.getSize()
     clear(colors.black); header("Schedules")
@@ -409,7 +457,7 @@ local function schedulePage(data)
     if active then
       help=active.paused and "S:skip P:resume X:stop " or "S:skip P:pause X:stop "
     end
-    help=help.."R:run A:add D:delete Esc:back"
+    help=help.."R:run A:new E:add stop O:remove stop D:delete Esc:back"
     footer(help)
     local timer=os.startTimer(5)
     local event,key=os.pullEvent()
@@ -431,6 +479,10 @@ local function schedulePage(data)
       local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
     elseif event=="key" and key==keys.a then
       createPath(data,"Schedule")
+    elseif event=="key" and key==keys.e then
+      addStopToSchedule(data,schedules)
+    elseif event=="key" and key==keys.o then
+      removeStopFromSchedule(data,schedules)
     elseif event=="key" and key==keys.d then
       local name=prompt("Schedule to delete")
       if name and schedules[name] and confirm("Delete "..name) then
