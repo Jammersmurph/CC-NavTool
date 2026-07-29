@@ -142,6 +142,7 @@ local function refresh(data,silent)
     saveData(data)
     return response.data
   end
+  if data.preferences and data.preferences.monitorTelemetry == true then renderMonitorTelemetry(data, err) end
   if not silent then Storage.log(data,"WARN",err); saveData(data) end
   return data.lastStatus,err
 end
@@ -149,7 +150,12 @@ end
 local function monitorNames()
   local names = {}
   for _, name in ipairs(peripheral.getNames()) do
-    if peripheral.getType(name) == "monitor" then names[#names + 1] = name end
+    local isMonitor = peripheral.getType(name) == "monitor"
+    if not isMonitor and type(peripheral.hasType) == "function" then
+      local ok, value = pcall(peripheral.hasType, name, "monitor")
+      isMonitor = ok and value == true
+    end
+    if isMonitor then names[#names + 1] = name end
   end
   return names
 end
@@ -211,7 +217,7 @@ local function stopName(stop, fallback)
   return tostring((type(stop) == "table" and stop.name) or fallback or "?")
 end
 
-function renderMonitorTelemetry(data)
+function renderMonitorTelemetry(data, errorText)
   data = data or {}
   local prefs = type(data.preferences) == "table" and data.preferences or {}
   if prefs.monitorTelemetry ~= true then return end
@@ -237,6 +243,7 @@ function renderMonitorTelemetry(data)
       local schedule = scheduleSummary(status)
       monitor.setTextColor(colors.lime)
       monitor.write("NavRemote Flight")
+      if errorText and not status.telemetry then line(2, "Status", tostring(errorText), colors.red) end
       line(3, "Mode", status.mode or "n/a", colors.cyan)
       line(4, "Position", formatVector(status.position))
       line(5, "Target", formatVector(target))
@@ -781,7 +788,7 @@ local function settingsPage(data)
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
     elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
-    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry then refresh(data,true) else clearLocalMonitors() end end
+    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry then renderMonitorTelemetry(data); refresh(data,true) else clearLocalMonitors() end end
     saveData(data)
   end
 end

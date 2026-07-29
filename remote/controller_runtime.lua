@@ -266,6 +266,7 @@ local newRefresh = [[local function refresh(data,silent)
   connectionState.error=err
   connectionState.changed=nowMs()
   if wasOnline then Storage.log(data,"WARN","Aircraft connection lost: "..tostring(err)) end
+  if data.preferences and data.preferences.monitorTelemetry == true and renderMonitorTelemetry then renderMonitorTelemetry(data, err) end
   if not silent then Storage.log(data,"WARN",err); saveData(data) end
   return data.lastStatus,err
 end]]
