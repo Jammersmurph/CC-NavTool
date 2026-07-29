@@ -299,10 +299,28 @@ local function targetsPage(data)
         local newName=prompt("Target name",target.name or name)
         local x=tonumber(prompt("X",target.x)); local y=tonumber(prompt("Y",target.y)); local z=tonumber(prompt("Z",target.z))
         if newName and newName~="" and x and y and z then
+          local updated={name=newName,x=x,y=y,z=z}
           data.targets[name]=nil
-          data.targets[newName]={name=newName,x=x,y=y,z=z}
+          data.targets[newName]=updated
+          local changedRoutes,changedSchedules=0,0
+          for _,route in pairs(data.routes or {}) do
+            if type(route.stops)=="table" then
+              for _,stop in ipairs(route.stops) do
+                if stop.name==name then stop.name=updated.name; stop.x=updated.x; stop.y=updated.y; stop.z=updated.z; changedRoutes=changedRoutes+1 end
+              end
+            end
+          end
+          for _,schedule in pairs(data.schedules or {}) do
+            local changed=false
+            if type(schedule.stops)=="table" then
+              for _,stop in ipairs(schedule.stops) do
+                if stop.name==name then stop.name=updated.name; stop.x=updated.x; stop.y=updated.y; stop.z=updated.z; changedSchedules=changedSchedules+1; changed=true end
+              end
+            end
+            if changed then request("save-schedule",{schedule=schedule}) end
+          end
           saveData(data)
-          message="Edited target: "..newName
+          message="Edited target: "..newName.." (updated "..tostring(changedRoutes+changedSchedules).." stops)"
         else
           message="Invalid target"
         end
