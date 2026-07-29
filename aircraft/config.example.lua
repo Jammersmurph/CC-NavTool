@@ -46,6 +46,7 @@ return {
     finalOutputMaximum = 2,
     finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,
+    finalVerticalUpOutputMaximum = 3,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:

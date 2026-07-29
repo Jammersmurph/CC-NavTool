@@ -210,9 +210,11 @@ local function controlTick()
         end
         if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
+          local upLimit = math.max(limit, math.min(15, tonumber(guidance.finalVerticalUpOutputMaximum) or 3))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
           local normalizedLimit = limit / maximum
-          commands.up = math.min(commands.up or 0, normalizedLimit)
+          local normalizedUpLimit = upLimit / maximum
+          commands.up = math.min(commands.up or 0, normalizedUpLimit)
           commands.down = math.min(commands.down or 0, normalizedLimit)
         end
 
@@ -220,6 +222,7 @@ local function controlTick()
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
         if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
+        local inPositioningZone = guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius
         if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.985) then
           thrust = 0
           speedPID:reset()
@@ -232,11 +235,11 @@ local function controlTick()
         if guidance.shouldBrake then
           speedPID:reset()
           local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber((config.navigation or {}).cruiseSpeed) or 12)))
-          splitAxis(-brake, "forward", "reverse", commands)
+          splitAxis(inPositioningZone and -brake or 0, "forward", "reverse", commands)
         elseif guidance.finalCapture then
           speedPID:reset()
         else
-          thrust = math.max(0, thrust)
+          if not inPositioningZone then thrust = math.max(0, thrust) end
           if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.985) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
             local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
             thrust = math.max(thrust, math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum)
