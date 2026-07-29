@@ -72,6 +72,10 @@ local function loadConfig()
     config.navigation.finalVerticalOutputMaximum = 2
     config._migrated = true
   end
+  if type(config.navigation) == "table" and config.navigation.finalVerticalUpOutputMaximum == nil then
+    config.navigation.finalVerticalUpOutputMaximum = 3
+    config._migrated = true
+  end
   return config
 end
 

@@ -205,6 +205,7 @@ function Director.solve(state, target, config)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
   local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
   local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
+  local finalVerticalUpOutputMaximum = math.max(finalVerticalOutputMaximum, math.min(15, tonumber(navigation.finalVerticalUpOutputMaximum) or 3))
 
   -- Horizontal propulsion must depend only on horizontal error. A large altitude
   -- difference must never produce forward thrust after X/Z have been acquired.
@@ -245,6 +246,7 @@ function Director.solve(state, target, config)
     finalOutputMaximum = finalOutputMaximum,
     finalVerticalRadius = finalVerticalRadius,
     finalVerticalOutputMaximum = finalVerticalOutputMaximum,
+    finalVerticalUpOutputMaximum = finalVerticalUpOutputMaximum,
     shouldBrake = shouldBrake,
     finalCapture = finalCapture,
     approachSpeedAlong = approachSpeedAlong,
