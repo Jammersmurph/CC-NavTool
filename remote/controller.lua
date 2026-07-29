@@ -781,7 +781,7 @@ local function settingsPage(data)
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
     elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
-    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if not data.preferences.monitorTelemetry then clearLocalMonitors() end end
+    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry then refresh(data,true) else clearLocalMonitors() end end
     saveData(data)
   end
 end
@@ -829,7 +829,7 @@ while true do
   desktop()
   local event,a=os.pullEvent()
   if event=="timer" and a==refreshTimer then
-    if data.preferences.autoRefresh~=false then local status=refresh(data,true); advanceAutomation(data,status) end
+    if data.preferences.autoRefresh~=false or data.preferences.monitorTelemetry==true then local status=refresh(data,true); advanceAutomation(data,status) end
     refreshTimer=os.startTimer(1)
   elseif event=="key" then
     local key=a
