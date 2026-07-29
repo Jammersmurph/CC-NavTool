@@ -222,14 +222,20 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
+    local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
     local finalHeadingReached = true
     if guidance.finalHeading then
       local finalHeadingError, finalAlignment = Director.headingError(state.heading, guidance.finalHeading)
       local headingTolerance = math.rad(math.max(0, tonumber(self.config.navigation and self.config.navigation.headingTolerance) or 4))
       finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
-      if guidance.finalCapture then headingError, alignment = finalHeadingError, finalAlignment end
+      if guidance.finalCapture and not holdYawForAltitude then headingError, alignment = finalHeadingError, finalAlignment end
     end
-    if guidance.finalCapture and finalHeadingReached then
+    if holdYawForAltitude then
+      self.heading:reset()
+      commands.left, commands.right = 0, 0
+      alignment = 1
+      notes[#notes + 1] = "yaw held during final altitude"
+    elseif guidance.finalCapture and finalHeadingReached then
       self.heading:reset()
       commands.left, commands.right = 0, 0
     else
