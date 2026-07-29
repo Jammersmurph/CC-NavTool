@@ -798,6 +798,39 @@ local function distance(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function scheduleStopArrival(config, state, stop)
+  stop = withoutFinalHeading(stop)
+  local position = state and state.position
+  if type(position) ~= "table" or type(stop) ~= "table" then return false, nil end
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local radius = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true then
+    radius = math.max(radius, tonumber(navigation.airshipArrivalRadius) or 6)
+  end
+  local dx = (tonumber(stop.x) or 0) - (tonumber(position.x) or 0)
+  local dy = (tonumber(stop.y) or 0) - (tonumber(position.y) or 0)
+  local dz = (tonumber(stop.z) or 0) - (tonumber(position.z) or 0)
+  local directDistance = math.sqrt(dx * dx + dy * dy + dz * dz)
+  local arrived = directDistance <= radius
+  local details = {
+    xError = dx,
+    yError = dy,
+    zError = dz,
+    distance = directDistance,
+    arrivalRadius = radius,
+    axesReached = arrived,
+    settled = arrived,
+    headingReached = true,
+    arrived = arrived,
+  }
+  local ok, directorArrived, directorDetails = pcall(ScheduleDirector.arrivalStatus, state, stop, config)
+  if ok and type(directorDetails) == "table" then
+    for key, value in pairs(directorDetails) do if details[key] == nil then details[key] = value end end
+    details.directorArrived = directorArrived == true
+  end
+  return arrived, details
+end
+
 local gpsFix
 local snapshot
 
@@ -1069,15 +1102,13 @@ snapshot = function(config, options)
     local index = math.max(1, math.min(stops and #stops or 1, tonumber(activeSchedule.index) or 1))
     local stop = stops and stops[index]
     if stop then
-      local ok, arrived, details = pcall(ScheduleDirector.arrivalStatus, {
+      local arrived, details = scheduleStopArrival(config, {
         position = position,
         velocity = velocity,
         heading = heading,
-      }, withoutFinalHeading(stop), config)
-      if ok then
-        scheduleArrival = details or {}
-        scheduleArrival.arrived = arrived == true
-      end
+      }, stop)
+      scheduleArrival = details or {}
+      scheduleArrival.arrived = arrived == true
     end
   end
   return {
@@ -1633,8 +1664,8 @@ end
 
 local function stopReached(config, state, stop)
   if type(stop) ~= "table" then return false end
-  local ok, arrived = pcall(ScheduleDirector.arrivalStatus, state, withoutFinalHeading(stop), config)
-  return ok and arrived == true
+  local arrived = scheduleStopArrival(config, state, stop)
+  return arrived == true
 end
 
 setScheduleStop = function(active, schedule, index)
