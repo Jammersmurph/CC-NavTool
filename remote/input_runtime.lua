@@ -161,7 +161,7 @@ local injected = table.concat({
   'if dispatchPos then source = source:sub(1,dispatchPos-1)..uiBridge.."\\n"..pageDispatcher.."\\n\\n"..source:sub(dispatchPos) end',
   '',
   'source = select(1, replacePlainOnce(source, "local event,a=os.pullEvent()", "local event,a,b,c=os.pullEventRaw()"))',
-  'source = select(1, replacePlainOnce(source, "  data.preferences=data.preferences or {}\n  selected=math.max", "  data.preferences=data.preferences or {}\n  if config.monitorTelemetry == nil then config.monitorTelemetry = data.preferences.monitorTelemetry == true; saveConfig() else data.preferences.monitorTelemetry = config.monitorTelemetry == true end\n  selected=math.max"))',
+  'source = select(1, replacePlainOnce(source, "  data.preferences=data.preferences or {}\\n  selected=math.max", "  data.preferences=data.preferences or {}\\n  if config.monitorTelemetry == nil then config.monitorTelemetry = data.preferences.monitorTelemetry == true; saveConfig() else data.preferences.monitorTelemetry = config.monitorTelemetry == true end\\n  selected=math.max"))',
   'source = select(1, replacePlainOnce(source, "local refreshTimer=os.startTimer(1)", "local refreshTimer=os.startTimer(5)"))',
   'source = source:gsub("elseif key==keys%.left and selected>1 then selected=selected%-1", "elseif key==keys.left and (selected-1)%%4>0 then selected=selected-1", 1)',
   'source = source:gsub("elseif key==keys%.right and selected<#icons then selected=selected%+1", "elseif key==keys.right and selected<#icons and selected%%4~=0 then selected=selected+1", 1)',
