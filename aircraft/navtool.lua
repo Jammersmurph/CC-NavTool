@@ -1204,6 +1204,20 @@ local function server(config, debug)
           response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
+        elseif request.command == "orientation-status" then
+          config.orientation = type(config.orientation) == "table" and config.orientation or {}
+          local state = snapshot(config, { library = false, schedule = false, gps = false })
+          response = { ok = true, yawOffset = tonumber(config.orientation.yawOffset) or 0, heading = state.heading, headingSource = state.headingSource }
+        elseif request.command == "orientation-set" then
+          config.orientation = type(config.orientation) == "table" and config.orientation or {}
+          local offset = tonumber(request.yawOffset)
+          if offset then
+            config.orientation.yawOffset = ((offset + 180) % 360) - 180
+            saveConfig(config)
+            response = { ok = true, yawOffset = config.orientation.yawOffset }
+          else
+            response = { ok = false, error = "invalid yaw offset" }
+          end
         elseif request.command == "set-target" and type(request.target) == "table" then
           saveTarget(request.target)
           response = { ok = true, target = request.target }
