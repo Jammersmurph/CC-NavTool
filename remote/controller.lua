@@ -773,6 +773,40 @@ local function logsPage(data)
   waitBack()
 end
 
+local function frontCalibrationPage(data)
+  while true do
+    local response,err=request("orientation-status")
+    local yaw=tonumber(response and response.yawOffset) or 0
+    local status=response or {}
+    clear(colors.black); header("Front calibration")
+    writeAt(3,4,"Current yaw offset",colors.cyan); writeAt(25,4,tostring(yaw).." deg")
+    writeAt(3,5,"Reported heading",colors.cyan); writeAt(25,5,headingText(status))
+    writeAt(3,7,"Use this if NavTool thinks the",colors.lightGray)
+    writeAt(3,8,"aircraft front points the wrong way.",colors.lightGray)
+    writeAt(3,10,"1. Rotate front left 90",colors.white)
+    writeAt(3,11,"2. Rotate front right 90",colors.white)
+    writeAt(3,12,"3. Flip front 180",colors.white)
+    writeAt(3,13,"4. Reset offset to 0",colors.white)
+    if err then writeAt(3,15,tostring(err),colors.red) end
+    footer("1-4: set  R: refresh  Esc: back")
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+    else
+      local nextYaw=nil
+      if key==keys.one then nextYaw=yaw+90
+      elseif key==keys.two then nextYaw=yaw-90
+      elseif key==keys.three then nextYaw=yaw+180
+      elseif key==keys.four then nextYaw=0 end
+      if nextYaw then
+        local ok,setErr=request("orientation-set",{yawOffset=nextYaw})
+        message=ok and "Front calibration updated" or tostring(setErr)
+        Storage.log(data,ok and "INFO" or "WARN",message); saveData(data)
+      end
+    end
+  end
+end
+
 local function settingsPage(data)
   while true do
     clear(colors.black); header("Settings")
@@ -781,14 +815,16 @@ local function settingsPage(data)
     writeAt(3,5,"2. Auto refresh",colors.cyan); writeAt(25,5,data.preferences.autoRefresh==false and "off" or "on")
     writeAt(3,6,"3. Manual strength",colors.cyan); writeAt(25,6,tostring(data.preferences.manualStrength or 2))
     writeAt(3,7,"4. Monitor telemetry",colors.cyan); writeAt(25,7,data.preferences.monitorTelemetry==true and "on" or "off")
+    writeAt(3,8,"5. Front calibration",colors.cyan); writeAt(25,8,"open")
     writeAt(3,9,"Connection values are edited in Profiles.",colors.lightGray)
-    footer("1-4: edit  Esc: back")
+    footer("1-5: edit  Esc: back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then saveData(data); return
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
     elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
     elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); config.monitorTelemetry=data.preferences.monitorTelemetry==true; saveConfig(); if data.preferences.monitorTelemetry then renderMonitorTelemetry(data); refresh(data,true) else clearLocalMonitors() end end
+    if key==keys.five then frontCalibrationPage(data) end
     saveData(data)
   end
 end
