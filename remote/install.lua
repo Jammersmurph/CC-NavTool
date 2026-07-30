@@ -47,6 +47,15 @@ local function attachedMonitors()
 end
 
 local function seedMonitorPreference(enabled)
+  local configPath = ROOT .. "/config.lua"
+  if fs.exists(configPath) then
+    local ok, remoteConfig = pcall(dofile, configPath)
+    if ok and type(remoteConfig) == "table" and remoteConfig.monitorTelemetry == nil then
+      remoteConfig.monitorTelemetry = enabled == true
+      local configFile = fs.open(configPath, "w")
+      if configFile then configFile.write("return " .. textutils.serialize(remoteConfig) .. "\n"); configFile.close() end
+    end
+  end
   local path = ROOT .. "/data/profiles/default.db"
   local data = nil
   if fs.exists(path) then
@@ -55,7 +64,7 @@ local function seedMonitorPreference(enabled)
   end
   data = type(data) == "table" and data or { targets = {}, routes = {}, schedules = {}, eventLog = {} }
   data.preferences = type(data.preferences) == "table" and data.preferences or {}
-  data.preferences.monitorTelemetry = enabled == true
+  if data.preferences.monitorTelemetry == nil then data.preferences.monitorTelemetry = enabled == true end
   local file = fs.open(path, "w")
   if file then file.write(textutils.serialize(data)); file.close() end
 end

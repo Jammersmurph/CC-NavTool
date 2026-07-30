@@ -788,7 +788,7 @@ local function settingsPage(data)
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
     elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
-    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); if data.preferences.monitorTelemetry then renderMonitorTelemetry(data); refresh(data,true) else clearLocalMonitors() end end
+    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); config.monitorTelemetry=data.preferences.monitorTelemetry==true; saveConfig(); if data.preferences.monitorTelemetry then renderMonitorTelemetry(data); refresh(data,true) else clearLocalMonitors() end end
     saveData(data)
   end
 end
@@ -832,6 +832,12 @@ local refreshTimer=os.startTimer(1)
 while true do
   local data=localData()
   data.preferences=data.preferences or {}
+  if config.monitorTelemetry == nil then
+    config.monitorTelemetry = data.preferences.monitorTelemetry == true
+    saveConfig()
+  else
+    data.preferences.monitorTelemetry = config.monitorTelemetry == true
+  end
   selected=math.max(1,math.min(#icons,tonumber(data.preferences.selectedIcon) or selected))
   desktop()
   local event,a=os.pullEvent()
