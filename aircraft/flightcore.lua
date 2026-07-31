@@ -184,7 +184,17 @@ local function controlTick()
       else
         airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
-        if guidance.finalCapture then
+        local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
+        local finalHeadingReached = true
+        if guidance.finalHeading then
+          local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
+          local headingTolerance = math.rad(math.max(0, tonumber((config.navigation or {}).headingTolerance) or 4))
+          finalHeadingReached = finalHeadingError ~= nil and math.abs(finalHeadingError) <= headingTolerance
+          if guidance.finalCapture and not holdYawForAltitude then headingError = finalHeadingError end
+        end
+        if holdYawForAltitude then
+          headingPID:reset()
+        elseif guidance.finalCapture and finalHeadingReached then
           headingPID:reset()
         else
           local yaw = headingPID:update(headingError or 0, dt)
@@ -203,31 +213,43 @@ local function controlTick()
         end
         if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
+          local upLimit = math.max(limit, math.min(15, tonumber(guidance.finalVerticalUpOutputMaximum) or 3))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
           local normalizedLimit = limit / maximum
-          commands.up = math.min(commands.up or 0, normalizedLimit)
+          local normalizedUpLimit = upLimit / maximum
+          commands.up = math.min(commands.up or 0, normalizedUpLimit)
           commands.down = math.min(commands.down or 0, normalizedLimit)
         end
 
-        local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
+        local headingAlignment = holdYawForAltitude and 1 or (guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0)
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
-        if airshipCruiseGate and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
+        if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.65) then
+        local inPositioningZone = guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.985) then
           thrust = 0
           speedPID:reset()
+          if headingError and math.abs(headingError) > math.rad(0.5) and (commands.left or 0) == 0 and (commands.right or 0) == 0 then
+            local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+            local yaw = (tonumber(fc.minimumYawOutput) or 1) / maximum
+            splitAxis(headingError > 0 and yaw or -yaw, "left", "right", commands)
+          end
         end
         if guidance.shouldBrake then
           speedPID:reset()
           local brake = math.min(1, math.max(0.25, (guidance.approachSpeedAlong or 0) / math.max(1, tonumber((config.navigation or {}).cruiseSpeed) or 12)))
-          splitAxis(-brake, "forward", "reverse", commands)
+          splitAxis(inPositioningZone and -brake or 0, "forward", "reverse", commands)
         elseif guidance.finalCapture then
           speedPID:reset()
         else
-          thrust = math.max(0, thrust)
+          if not inPositioningZone then thrust = math.max(0, thrust) end
+          if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.985) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
+            local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+            thrust = math.max(thrust, math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum)
+          end
           splitAxis(thrust, "forward", "reverse", commands)
         end
-        if guidance.horizontalDistance and guidance.brakeRadius and guidance.horizontalDistance <= guidance.brakeRadius then
+        if guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalOutputMaximum) or 2))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
           local normalizedLimit = limit / maximum

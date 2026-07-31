@@ -1,21 +1,12 @@
-local VERSION = "0.5.1"
+local VERSION = "0.5.2"
 local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
 
-local CARDINAL_TO_DEGREES = {
-  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
-}
 local DEGREES_TO_CARDINAL = {
   [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
   [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
 }
-
-local function cardinalToDegrees(input)
-  if input == nil or input == "" then return nil end
-  local key = tostring(input):lower()
-  return CARDINAL_TO_DEGREES[key]
-end
 
 local function degreesToCardinal(degrees)
   degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
@@ -28,6 +19,10 @@ local function degreesToCardinal(degrees)
   return best
 end
 
+local function nowSeconds()
+  return os.epoch and (os.epoch("utc") / 1000) or os.time()
+end
+
 local config = dofile(CONFIG_PATH)
 config.profiles = type(config.profiles) == "table" and config.profiles or {}
 config.activeProfile = config.activeProfile or next(config.profiles)
@@ -35,7 +30,7 @@ local hostCache, selected, message = {}, 1, ""
 
 local icons = {
   { id="dashboard", label="Dashboard", glyph={"#####","#.#.#","#####"} },
-  { id="targets", label="Targets", glyph={"..#..","#####","..#.."} },
+  { id="targets", label="Waypoints", glyph={"..#..","#####","..#.."} },
   { id="routes", label="Routes", glyph={"#....",".###.","....#"} },
   { id="schedules", label="Schedules", glyph={"#####","#.#.#","#####"} },
   { id="modes", label="Modes", glyph={"..#..",".###.","#####"} },
@@ -89,7 +84,7 @@ local function request(command, extra)
 end
 
 local function localData() return Storage.load(config.activeProfile or "default") end
-local function saveData(data) return Storage.save(config.activeProfile or "default", data) end
+local function saveData(data) return Storage.save(data and data.profile or config.activeProfile or "default", data) end
 
 local function clear(bg)
   term.setBackgroundColor(bg or colors.green)
@@ -142,12 +137,132 @@ local function refresh(data,silent)
   local response,err = request("live-status")
   if response then
     data.lastStatus = response.data
+    renderMonitorTelemetry(data)
     if not silent then Storage.log(data,"INFO","Telemetry refreshed") end
     saveData(data)
     return response.data
   end
+  if data.preferences and data.preferences.monitorTelemetry == true then renderMonitorTelemetry(data, err) end
   if not silent then Storage.log(data,"WARN",err); saveData(data) end
   return data.lastStatus,err
+end
+
+local function monitorNames()
+  local names = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    local isMonitor = peripheral.getType(name) == "monitor"
+    if not isMonitor and type(peripheral.hasType) == "function" then
+      local ok, value = pcall(peripheral.hasType, name, "monitor")
+      isMonitor = ok and value == true
+    end
+    if isMonitor then names[#names + 1] = name end
+  end
+  return names
+end
+
+local function formatVector(value)
+  if type(value) ~= "table" then return "n/a" end
+  return string.format("%.1f %.1f %.1f", tonumber(value.x) or 0, tonumber(value.y) or 0, tonumber(value.z) or 0)
+end
+
+local function clearLocalMonitors()
+  for _, name in ipairs(monitorNames()) do
+    local monitor = peripheral.wrap(name)
+    if monitor then
+      monitor.setBackgroundColor(colors.black)
+      monitor.setTextColor(colors.white)
+      monitor.clear()
+      monitor.setCursorPos(1, 1)
+    end
+  end
+end
+
+local function headingText(status)
+  local degrees = tonumber(status and status.headingDegrees)
+  local heading = status and status.heading
+  if not degrees and type(heading) == "table" and heading.x and heading.z then degrees = math.deg(math.atan2(heading.x, heading.z or 0)) end
+  return degrees and (string.format("%.0f", degrees) .. " " .. degreesToCardinal(degrees)) or "n/a"
+end
+
+local function scheduleSummary(status)
+  status = status or {}
+  local active = status.activeSchedule
+  if not active then return nil end
+  local schedules = type(status.schedules) == "table" and status.schedules or {}
+  local schedule = schedules[active.name] or {}
+  local stops = type(schedule.stops) == "table" and schedule.stops or {}
+  local index = math.max(1, math.min(#stops > 0 and #stops or 1, tonumber(active.index) or 1))
+  local stop = stops[index] or status.target
+  local nextIndex = index + 1
+  if nextIndex > #stops and schedule.loop then nextIndex = 1 end
+  local nextStop = stops[nextIndex]
+  local arrival = status.scheduleArrival or {}
+  local departIn = active.dwellUntil and math.max(0, math.ceil((tonumber(active.dwellUntil) or 0) - nowSeconds())) or nil
+  local phase = active.paused and "Paused" or departIn and "Dwelling" or arrival.arrived and "Arrived" or arrival.axesReached and "Settling" or "En route"
+  return {
+    active = active,
+    schedule = schedule,
+    stop = stop,
+    nextStop = nextStop,
+    index = index,
+    total = #stops > 0 and #stops or "?",
+    phase = phase,
+    departIn = departIn,
+    distance = status.distanceToTarget,
+    arrival = arrival,
+  }
+end
+
+local function stopName(stop, fallback)
+  return tostring((type(stop) == "table" and stop.name) or fallback or "?")
+end
+
+function renderMonitorTelemetry(data, errorText)
+  data = data or {}
+  local prefs = type(data.preferences) == "table" and data.preferences or {}
+  if prefs.monitorTelemetry ~= true then return end
+  local status = data.lastStatus or {}
+  for _, name in ipairs(monitorNames()) do
+    local monitor = peripheral.wrap(name)
+    if monitor then
+      pcall(monitor.setTextScale, 0.5)
+      monitor.setBackgroundColor(colors.black)
+      monitor.setTextColor(colors.white)
+      monitor.clear()
+      monitor.setCursorPos(1, 1)
+      local width = monitor.getSize()
+      local function line(y, label, value, color)
+        monitor.setCursorPos(1, y)
+        monitor.setTextColor(colors.lightGray)
+        monitor.write(string.sub(label, 1, 12))
+        monitor.setCursorPos(14, y)
+        monitor.setTextColor(color or colors.white)
+        monitor.write(string.sub(tostring(value or "n/a"), 1, math.max(1, width - 13)))
+      end
+      local target = status.target or {}
+      local schedule = scheduleSummary(status)
+      monitor.setTextColor(colors.lime)
+      monitor.write("NavRemote Flight")
+      if errorText and not status.telemetry then line(2, "Status", tostring(errorText), colors.red) end
+      line(3, "Mode", status.mode or "n/a", colors.cyan)
+      line(4, "Position", formatVector(status.position))
+      line(5, "Target", formatVector(target))
+      line(6, "Distance", status.distanceToTarget and string.format("%.1f", status.distanceToTarget) or "n/a", colors.yellow)
+      line(7, "Altitude", status.altitude or (status.position and status.position.y) or "n/a")
+      line(8, "Heading", headingText(status))
+      if schedule then
+        line(9, "Schedule", tostring(schedule.active.name or "?") .. " " .. tostring(schedule.index) .. "/" .. tostring(schedule.total), colors.lime)
+        line(10, "Phase", schedule.phase, schedule.departIn and colors.yellow or colors.cyan)
+        line(11, "Stop", stopName(schedule.stop, "Stop " .. tostring(schedule.index)))
+        line(12, "Next", schedule.nextStop and stopName(schedule.nextStop) or "complete")
+        line(13, "Depart", schedule.departIn and (tostring(schedule.departIn) .. "s") or "n/a", colors.yellow)
+        line(14, "Arrive", schedule.arrival.arrived and "yes" or "no", schedule.arrival.arrived and colors.lime or colors.lightGray)
+      else
+        line(9, "Schedule", "none")
+        line(10, "Source", status.source or status.peripheral or "n/a")
+      end
+    end
+  end
 end
 
 local function iconPosition(index)
@@ -201,33 +316,69 @@ local function listPage(title,map,help)
 end
 
 local function activateTarget(data,target)
+  if type(target)=="table" and target.heading~=nil then
+    local copy={}
+    for k,v in pairs(target) do if k~="heading" then copy[k]=v end end
+    target=copy
+  end
   data.target=target; saveData(data)
   local ok,err=request("set-target",{target=target})
   if ok then ok,err=request("set-mode",{mode="navigate"}) end
-  if ok then message="Navigating to "..tostring(target.name or "target"); Storage.log(data,"INFO",message)
+  if ok then message="Navigating to "..tostring(target.name or "waypoint"); Storage.log(data,"INFO",message)
   else message=err or "Target rejected"; Storage.log(data,"WARN",message) end
   saveData(data)
 end
 
 local function targetsPage(data)
   while true do
-    listPage("Targets",data.targets,"A:add  G:go  D:delete  Esc:back")
+    listPage("Local Waypoints",data.targets,"A:add  E:edit  G:go  D:delete  Esc:back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then return
     elseif key==keys.a then
-      local name=prompt("Target name")
+      local name=prompt("Waypoint name")
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
-      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
       if name and name~="" and x and y and z then
         local target={name=name,x=x,y=y,z=z}
-        if heading then target.heading=heading end
-        data.targets[name]=target; saveData(data)
+        data.targets[name]=target; saveData(data); message="Saved local waypoint: "..name
       end
+    elseif key==keys.e then
+      local name=prompt("Waypoint to edit")
+      local target=data.targets[name]
+      if target then
+        local newName=prompt("Waypoint name",target.name or name)
+        local x=tonumber(prompt("X",target.x)); local y=tonumber(prompt("Y",target.y)); local z=tonumber(prompt("Z",target.z))
+        if newName and newName~="" and x and y and z then
+          local updated={name=newName,x=x,y=y,z=z}
+          data.targets[name]=nil
+          data.targets[newName]=updated
+          local changedRoutes,changedSchedules=0,0
+          for _,route in pairs(data.routes or {}) do
+            if type(route.stops)=="table" then
+              for _,stop in ipairs(route.stops) do
+                if stop.name==name then stop.name=updated.name; stop.x=updated.x; stop.y=updated.y; stop.z=updated.z; changedRoutes=changedRoutes+1 end
+              end
+            end
+          end
+          for _,schedule in pairs(data.schedules or {}) do
+            local changed=false
+            if type(schedule.stops)=="table" then
+              for _,stop in ipairs(schedule.stops) do
+                if stop.name==name then stop.name=updated.name; stop.x=updated.x; stop.y=updated.y; stop.z=updated.z; changedSchedules=changedSchedules+1; changed=true end
+              end
+            end
+            if changed then request("save-schedule",{schedule=schedule}) end
+          end
+          saveData(data)
+          message="Edited local waypoint: "..newName.." (updated "..tostring(changedRoutes+changedSchedules).." stops)"
+        else
+          message="Invalid waypoint"
+        end
+      else message="Waypoint not found" end
     elseif key==keys.g then
-      local name=prompt("Target to activate")
-      if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Target not found" end
+      local name=prompt("Waypoint to activate")
+      if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Waypoint not found" end
     elseif key==keys.d then
-      local name=prompt("Target to delete")
+      local name=prompt("Waypoint to delete")
       if data.targets[name] and confirm("Delete "..name) then data.targets[name]=nil; saveData(data) end
     end
   end
@@ -242,22 +393,70 @@ local function createPath(data,kind)
     local saved=prompt("Stop "..i.." saved target (blank=coords)","")
     if saved~="" and data.targets[saved] then
       local t=data.targets[saved]; local stop={name=t.name,x=t.x,y=t.y,z=t.z}
-      if t.heading then stop.heading=t.heading end
       stops[#stops+1]=stop
     else
       local label=prompt("Stop "..i.." label","Stop "..i)
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
-      local heading=cardinalToDegrees(prompt("Final heading N/S/E/W (blank=any)",""))
       if not x or not y or not z then return end
       local stop={name=label,x=x,y=y,z=z}
-      if heading then stop.heading=heading end
       stops[#stops+1]=stop
     end
   end
   local item={name=name,stops=stops}
   if kind=="Schedule" then item.loop=confirm("Loop schedule"); item.dwell=tonumber(prompt("Dwell seconds","0")) or 0 end
   local map=kind=="Route" and data.routes or data.schedules
+  if kind=="Schedule" then
+    local ok,err=request("save-schedule",{schedule=item})
+    if not ok then message="Schedule save failed: "..tostring(err); return end
+  end
   map[name]=item; saveData(data)
+end
+
+local function promptStop(data,index)
+  local saved=prompt("Stop "..tostring(index).." saved target (blank=coords)","")
+  if saved~="" and data.targets[saved] then
+    local t=data.targets[saved]
+    return {name=t.name,x=t.x,y=t.y,z=t.z}
+  end
+  local label=prompt("Stop "..tostring(index).." label","Stop "..tostring(index))
+  local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
+  if not x or not y or not z then return nil end
+  return {name=label,x=x,y=y,z=z}
+end
+
+local function saveScheduleEdit(data,schedule)
+  if not schedule or not schedule.name then return false,"Schedule not found" end
+  local ok,err=request("save-schedule",{schedule=schedule})
+  if not ok then return false,"Schedule save failed: "..tostring(err) end
+  data.schedules[schedule.name]=schedule
+  saveData(data)
+  return true
+end
+
+local function addStopToSchedule(data,schedules)
+  local name=prompt("Schedule to edit")
+  local schedule=name and schedules[name]
+  if not schedule then message="Schedule not found"; return end
+  schedule.stops=type(schedule.stops)=="table" and schedule.stops or {}
+  local stop=promptStop(data,#schedule.stops+1)
+  if not stop then message="Invalid stop"; return end
+  schedule.stops[#schedule.stops+1]=stop
+  local ok,err=saveScheduleEdit(data,schedule)
+  message=ok and ("Added stop to "..name) or err
+end
+
+local function removeStopFromSchedule(data,schedules)
+  local name=prompt("Schedule to edit")
+  local schedule=name and schedules[name]
+  if not schedule or type(schedule.stops)~="table" then message="Schedule not found"; return end
+  local index=tonumber(prompt("Stop number to remove"))
+  if not index or index<1 or index>#schedule.stops then message="Invalid stop number"; return end
+  if #schedule.stops<=1 then message="Schedule needs at least one stop"; return end
+  local stop=schedule.stops[index]
+  if not confirm("Remove "..tostring(stop.name or ("stop "..index))) then return end
+  table.remove(schedule.stops,index)
+  local ok,err=saveScheduleEdit(data,schedule)
+  message=ok and ("Removed stop from "..name) or err
 end
 
 local function runPath(data,kind,name)
@@ -275,20 +474,38 @@ local function schedulePage(data)
     local response,err=request("status")
     local status=response and response.data or {}
     local active=status.activeSchedule
-    local schedules=data.schedules or {}
+    local schedules=status.schedules or data.schedules or {}
+    data.schedules=schedules
     local names=Storage.names(schedules)
     local w,h=term.getSize()
     clear(colors.black); header("Schedules")
     local y=3
     if active then
+      local summary=scheduleSummary(status) or {}
+      local arrival=summary.arrival or status.scheduleArrival or {}
       fill(1,y,w,5,colors.gray)
       writeAt(2,y,"ACTIVE SCHEDULE",colors.yellow); y=y+1
       writeAt(2,y,tostring(active.name or "?"),colors.lime)
-      writeAt(25,y,"Stop "..tostring(active.index or 1),colors.white)
-      if active.dwellUntil then
-        local remaining=math.max(0,math.floor((active.dwellUntil-(os.epoch and os.epoch("utc") or os.time()))/1000))
-        writeAt(35,y,"Dwelling "..tostring(remaining).."s",colors.yellow)
+      writeAt(25,y,"Stop "..tostring(summary.index or active.index or 1).."/"..tostring(summary.total or "?"),colors.white)
+      if active.paused then writeAt(35,y,"PAUSED",colors.yellow) end
+      if summary.departIn then
+        writeAt(35,y,"Depart in "..tostring(summary.departIn).."s",colors.yellow)
+      elseif arrival.arrived then
+        writeAt(35,y,"ARRIVED",colors.lime)
+      elseif arrival.axesReached then
+        writeAt(35,y,"SETTLING",colors.yellow)
       end
+      y=y+1
+      writeAt(2,y,"Status: "..tostring(summary.phase or "Traveling"),arrival.arrived and colors.lime or colors.lightGray)
+      if status.distanceToTarget then writeAt(18,y,"Dist "..string.format("%.1f",status.distanceToTarget),colors.yellow) end
+      if summary.departIn then
+        writeAt(30,y,"Depart "..tostring(summary.departIn).."s",colors.yellow)
+      elseif summary.nextStop then
+        writeAt(30,y,"Next: "..string.sub(stopName(summary.nextStop),1,12),colors.lightGray)
+      end
+      y=y+1
+      if summary.stop then writeAt(2,y,"Current: "..string.sub(stopName(summary.stop),1,16),colors.cyan) end
+      if summary.nextStop then writeAt(25,y,"Next: "..string.sub(stopName(summary.nextStop),1,16),colors.lightGray) end
       y=y+1
       local schedule=schedules[active.name]
       if schedule and schedule.stops then
@@ -324,27 +541,35 @@ local function schedulePage(data)
     end
     local help=""
     if active then
-      help="S:skip P:pause X:stop "
+      help=active.paused and "S:skip P:resume X:stop " or "S:skip P:pause X:stop "
     end
-    help=help.."R:run A:add D:delete Esc:back"
+    help=help.."R:run A:new E:add stop O:remove stop D:delete Esc:back"
     footer(help)
-    local _,key=os.pullEvent("key")
-    if key==keys.escape then return
-    elseif key==keys.r then
+    local timer=os.startTimer(5)
+    local event,key=os.pullEvent()
+    if event=="timer" and key==timer then
+    elseif event=="key" and key==keys.escape then return
+    elseif event=="key" and key==keys.r then
       local name=prompt("Schedule to run")
       if name and schedules[name] then
+        request("save-schedule",{schedule=schedules[name]})
         local r,e=request("run-schedule",{name=name})
         message=r and "Schedule started: "..name or e
       elseif name then message="Not found: "..name end
-    elseif key==keys.s and active then
+    elseif event=="key" and key==keys.s and active then
       local r,e=request("skip-stop"); message=r and "Stop skipped" or e
-    elseif key==keys.p and active then
-      local r,e=request("pause-schedule"); message=r and "Schedule paused" or e
-    elseif key==keys.x and active then
+    elseif event=="key" and key==keys.p and active then
+      local r,e=request(active.paused and "resume-schedule" or "pause-schedule")
+      message=r and (active.paused and "Schedule resumed" or "Schedule paused") or e
+    elseif event=="key" and key==keys.x and active then
       local r,e=request("stop-schedule"); message=r and "Schedule stopped" or e
-    elseif key==keys.a then
+    elseif event=="key" and key==keys.a then
       createPath(data,"Schedule")
-    elseif key==keys.d then
+    elseif event=="key" and key==keys.e then
+      addStopToSchedule(data,schedules)
+    elseif event=="key" and key==keys.o then
+      removeStopFromSchedule(data,schedules)
+    elseif event=="key" and key==keys.d then
       local name=prompt("Schedule to delete")
       if name and schedules[name] and confirm("Delete "..name) then
         request("delete-schedule",{name=name})
@@ -382,7 +607,8 @@ local function modesPage()
   end
 end
 
-local function manualPage()
+local function manualPage(data)
+  local manualStrength = math.max(1, math.min(15, tonumber(data and data.preferences and data.preferences.manualStrength) or 2))
   local hardwareResponse = request("hardware-list")
   local airship = hardwareResponse and hardwareResponse.hardware and hardwareResponse.hardware.modes and hardwareResponse.hardware.modes.airship == true
   if not airship then
@@ -390,18 +616,21 @@ local function manualPage()
     writeAt(3,4,"W / S",colors.cyan); writeAt(13,4,"Forward / reverse")
     writeAt(3,5,"A / D",colors.cyan); writeAt(13,5,"Turn left / right")
     writeAt(3,6,"Space / Shift",colors.cyan); writeAt(18,6,"Up / down")
-    writeAt(3,8,"Each press sends a bounded pulse.",colors.yellow)
+    writeAt(3,8,"Each press sends strength "..tostring(manualStrength)..".",colors.yellow)
     footer("Movement keys  X: outputs off  Esc: back")
     while true do
       local _,key=os.pullEvent("key")
       if key==keys.escape then return end
       local control=key==keys.w and "forward" or key==keys.s and "reverse" or key==keys.a and "left" or key==keys.d and "right" or key==keys.space and "up" or key==keys.leftShift and "down"
-      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+      if control then request("manual-control",{control=control,strength=manualStrength,duration=0.3}) end
       if key==keys.x then request("outputs-off"); message="Outputs cleared"; return end
     end
   end
 
-  local vertical=2
+  local statusResponse = request("airship-vertical-status")
+  local currentVertical = tonumber(statusResponse and statusResponse.value)
+    or tonumber(hardwareResponse and hardwareResponse.hardware and hardwareResponse.hardware.modes and hardwareResponse.hardware.modes.airshipVertical)
+  local vertical=math.max(0,math.min(15,currentVertical or 2))
   local function sendVertical()
     local ok,err=request("airship-vertical-control",{strength=vertical})
     if ok then message="Vertical analog "..tostring(vertical)
@@ -423,7 +652,7 @@ local function manualPage()
     writeAt(14,9,"15",colors.lightGray); writeAt(14,16,"08",colors.lightGray); writeAt(14,23,"00",colors.lightGray)
     writeAt(22,10,"Up/Down arrows adjust",colors.lightGray)
     writeAt(22,11,"Click slider to set",colors.lightGray)
-    writeAt(22,13,"Space sends current value",colors.yellow)
+    writeAt(22,13,"Manual thrust strength "..tostring(manualStrength),colors.yellow)
     if message~="" then writeAt(22,15,message:sub(1,32),colors.yellow) end
     footer("WASD move  Up/Down/click vertical  Space:set  X:off  Esc:back")
   end
@@ -437,7 +666,7 @@ local function manualPage()
       elseif a==keys.space then sendVertical(); draw()
       elseif a==keys.x then request("outputs-off"); message="Outputs cleared"; return end
       local control=a==keys.w and "forward" or a==keys.s and "reverse" or a==keys.a and "left" or a==keys.d and "right"
-      if control then request("manual-control",{control=control,strength=2,duration=0.3}) end
+      if control then request("manual-control",{control=control,strength=manualStrength,duration=0.3}) end
     elseif event=="mouse_click" and b>=6 and b<=10 and c>=9 and c<=23 then
       vertical=math.max(0,math.min(15,24-c)); sendVertical(); draw()
     end
@@ -470,11 +699,20 @@ local function dashboard(data)
   writeAt(3,17,string.format("X %8.2f",tonumber(v.x) or 0)); writeAt(18,17,string.format("Y %8.2f",tonumber(v.y) or 0)); writeAt(33,17,string.format("Z %8.2f",tonumber(v.z) or 0))
   local active=status.activeSchedule
   if active then
-    writeAt(3,19,"Active Schedule",colors.cyan)
-    writeAt(15,19,tostring(active.name or "?").." stop "..tostring(active.index or 1),colors.lime)
+    local summary=scheduleSummary(status) or {}
+    writeAt(3,18,"Schedule",colors.cyan)
+    writeAt(15,18,tostring(active.name or "?").." "..tostring(summary.index or active.index or 1).."/"..tostring(summary.total or "?"),colors.lime)
+    writeAt(3,19,"Sched Status",colors.cyan)
+    writeAt(15,19,tostring(summary.phase or "En route"),summary.departIn and colors.yellow or colors.white)
+    if summary.departIn then writeAt(29,19,"Depart "..tostring(summary.departIn).."s",colors.yellow) end
+    writeAt(3,20,"Current",colors.cyan)
+    writeAt(15,20,stopName(summary.stop,"Stop "..tostring(summary.index or active.index or 1)),colors.white)
+    writeAt(3,21,"Next",colors.cyan)
+    writeAt(15,21,summary.nextStop and stopName(summary.nextStop) or "complete",colors.lightGray)
+  else
+    writeAt(3,21,"Monitor",colors.cyan)
+    writeAt(15,21,status.peripheral or status.sublevel or "none")
   end
-  writeAt(3,21,"Monitor",colors.cyan)
-  writeAt(15,21,status.peripheral or status.sublevel or "none")
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
   footer(help)
@@ -535,6 +773,40 @@ local function logsPage(data)
   waitBack()
 end
 
+local function frontCalibrationPage(data)
+  while true do
+    local response,err=request("orientation-status")
+    local yaw=tonumber(response and response.yawOffset) or 0
+    local status=response or {}
+    clear(colors.black); header("Front calibration")
+    writeAt(3,4,"Current yaw offset",colors.cyan); writeAt(25,4,tostring(yaw).." deg")
+    writeAt(3,5,"Reported heading",colors.cyan); writeAt(25,5,headingText(status))
+    writeAt(3,7,"Use this if NavTool thinks the",colors.lightGray)
+    writeAt(3,8,"aircraft front points the wrong way.",colors.lightGray)
+    writeAt(3,10,"1. Rotate front left 90",colors.white)
+    writeAt(3,11,"2. Rotate front right 90",colors.white)
+    writeAt(3,12,"3. Flip front 180",colors.white)
+    writeAt(3,13,"4. Reset offset to 0",colors.white)
+    if err then writeAt(3,15,tostring(err),colors.red) end
+    footer("1-4: set  R: refresh  Esc: back")
+    local _,key=os.pullEvent("key")
+    if key==keys.escape then return
+    elseif key==keys.r then
+    else
+      local nextYaw=nil
+      if key==keys.one then nextYaw=yaw+90
+      elseif key==keys.two then nextYaw=yaw-90
+      elseif key==keys.three then nextYaw=yaw+180
+      elseif key==keys.four then nextYaw=0 end
+      if nextYaw then
+        local ok,setErr=request("orientation-set",{yawOffset=nextYaw})
+        message=ok and "Front calibration updated" or tostring(setErr)
+        Storage.log(data,ok and "INFO" or "WARN",message); saveData(data)
+      end
+    end
+  end
+end
+
 local function settingsPage(data)
   while true do
     clear(colors.black); header("Settings")
@@ -542,13 +814,17 @@ local function settingsPage(data)
     writeAt(3,4,"1. Arrival radius",colors.cyan); writeAt(25,4,tostring(data.preferences.arrivalRadius or 5))
     writeAt(3,5,"2. Auto refresh",colors.cyan); writeAt(25,5,data.preferences.autoRefresh==false and "off" or "on")
     writeAt(3,6,"3. Manual strength",colors.cyan); writeAt(25,6,tostring(data.preferences.manualStrength or 2))
-    writeAt(3,8,"Connection values are edited in Profiles.",colors.lightGray)
-    footer("1-3: edit  Esc: back")
+    writeAt(3,7,"4. Monitor telemetry",colors.cyan); writeAt(25,7,data.preferences.monitorTelemetry==true and "on" or "off")
+    writeAt(3,8,"5. Front calibration",colors.cyan); writeAt(25,8,"open")
+    writeAt(3,9,"Connection values are edited in Profiles.",colors.lightGray)
+    footer("1-5: edit  Esc: back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then saveData(data); return
     elseif key==keys.one then data.preferences.arrivalRadius=tonumber(prompt("Arrival radius",data.preferences.arrivalRadius or 5)) or 5
     elseif key==keys.two then data.preferences.autoRefresh=not (data.preferences.autoRefresh~=false)
-    elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2)) end
+    elseif key==keys.three then data.preferences.manualStrength=math.max(1,math.min(15,tonumber(prompt("Manual strength",data.preferences.manualStrength or 2)) or 2))
+    elseif key==keys.four then data.preferences.monitorTelemetry=not (data.preferences.monitorTelemetry==true); config.monitorTelemetry=data.preferences.monitorTelemetry==true; saveConfig(); if data.preferences.monitorTelemetry then renderMonitorTelemetry(data); refresh(data,true) else clearLocalMonitors() end end
+    if key==keys.five then frontCalibrationPage(data) end
     saveData(data)
   end
 end
@@ -592,11 +868,17 @@ local refreshTimer=os.startTimer(1)
 while true do
   local data=localData()
   data.preferences=data.preferences or {}
+  if config.monitorTelemetry == nil then
+    config.monitorTelemetry = data.preferences.monitorTelemetry == true
+    saveConfig()
+  else
+    data.preferences.monitorTelemetry = config.monitorTelemetry == true
+  end
   selected=math.max(1,math.min(#icons,tonumber(data.preferences.selectedIcon) or selected))
   desktop()
   local event,a=os.pullEvent()
   if event=="timer" and a==refreshTimer then
-    if data.preferences.autoRefresh~=false then local status=refresh(data,true); advanceAutomation(data,status) end
+    if data.preferences.autoRefresh~=false or data.preferences.monitorTelemetry==true then local status=refresh(data,true); advanceAutomation(data,status) end
     refreshTimer=os.startTimer(1)
   elseif event=="key" then
     local key=a
@@ -614,7 +896,7 @@ while true do
       elseif id=="routes" then pathPage(data,"Route")
       elseif id=="schedules" then schedulePage(data)
       elseif id=="modes" then modesPage()
-      elseif id=="manual" then manualPage()
+      elseif id=="manual" then manualPage(data)
       elseif id=="profiles" then profilesPage()
       elseif id=="logs" then logsPage(data)
       elseif id=="settings" then settingsPage(data) end

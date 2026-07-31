@@ -34,6 +34,41 @@ local function download(remote, localPath)
   return true
 end
 
+local function isPocketComputer()
+  return type(pocket) == "table"
+end
+
+local function attachedMonitors()
+  local result = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "monitor" then result[#result + 1] = name end
+  end
+  return result
+end
+
+local function seedMonitorPreference(enabled)
+  local configPath = ROOT .. "/config.lua"
+  if fs.exists(configPath) then
+    local ok, remoteConfig = pcall(dofile, configPath)
+    if ok and type(remoteConfig) == "table" and remoteConfig.monitorTelemetry == nil then
+      remoteConfig.monitorTelemetry = enabled == true
+      local configFile = fs.open(configPath, "w")
+      if configFile then configFile.write("return " .. textutils.serialize(remoteConfig) .. "\n"); configFile.close() end
+    end
+  end
+  local path = ROOT .. "/data/profiles/default.db"
+  local data = nil
+  if fs.exists(path) then
+    local file = fs.open(path, "r")
+    if file then data = textutils.unserialize(file.readAll()); file.close() end
+  end
+  data = type(data) == "table" and data or { targets = {}, routes = {}, schedules = {}, eventLog = {} }
+  data.preferences = type(data.preferences) == "table" and data.preferences or {}
+  if data.preferences.monitorTelemetry == nil then data.preferences.monitorTelemetry = enabled == true end
+  local file = fs.open(path, "w")
+  if file then file.write(textutils.serialize(data)); file.close() end
+end
+
 if not term.isColor() then printError("NavRemote requires an Advanced Computer."); return end
 if not http then printError("HTTP API is disabled."); return end
 fs.makeDir(ROOT)
@@ -52,6 +87,12 @@ if not fs.exists(ROOT .. "/config.lua") then
   print("  Created remote configuration")
 else
   print("  Preserved remote configuration")
+end
+local monitors = attachedMonitors()
+if not isPocketComputer() and #monitors > 0 then
+  write("Display NavRemote telemetry on attached monitor(s)? [y/N]: ")
+  local answer = tostring(read() or ""):lower():sub(1, 1)
+  seedMonitorPreference(answer == "y")
 end
 for _, stale in ipairs({"ui_runtime.lua", "navremote.lua", "update.bootstrap.lua"}) do
   local path = ROOT .. "/" .. stale
