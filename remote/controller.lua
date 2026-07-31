@@ -30,7 +30,7 @@ local hostCache, selected, message = {}, 1, ""
 
 local icons = {
   { id="dashboard", label="Dashboard", glyph={"#####","#.#.#","#####"} },
-  { id="targets", label="Targets", glyph={"..#..","#####","..#.."} },
+  { id="targets", label="Waypoints", glyph={"..#..","#####","..#.."} },
   { id="routes", label="Routes", glyph={"#....",".###.","....#"} },
   { id="schedules", label="Schedules", glyph={"#####","#.#.#","#####"} },
   { id="modes", label="Modes", glyph={"..#..",".###.","#####"} },
@@ -84,7 +84,7 @@ local function request(command, extra)
 end
 
 local function localData() return Storage.load(config.activeProfile or "default") end
-local function saveData(data) return Storage.save(config.activeProfile or "default", data) end
+local function saveData(data) return Storage.save(data and data.profile or config.activeProfile or "default", data) end
 
 local function clear(bg)
   term.setBackgroundColor(bg or colors.green)
@@ -324,28 +324,28 @@ local function activateTarget(data,target)
   data.target=target; saveData(data)
   local ok,err=request("set-target",{target=target})
   if ok then ok,err=request("set-mode",{mode="navigate"}) end
-  if ok then message="Navigating to "..tostring(target.name or "target"); Storage.log(data,"INFO",message)
+  if ok then message="Navigating to "..tostring(target.name or "waypoint"); Storage.log(data,"INFO",message)
   else message=err or "Target rejected"; Storage.log(data,"WARN",message) end
   saveData(data)
 end
 
 local function targetsPage(data)
   while true do
-    listPage("Targets",data.targets,"A:add  E:edit  G:go  D:delete  Esc:back")
+    listPage("Local Waypoints",data.targets,"A:add  E:edit  G:go  D:delete  Esc:back")
     local _,key=os.pullEvent("key")
     if key==keys.escape then return
     elseif key==keys.a then
-      local name=prompt("Target name")
+      local name=prompt("Waypoint name")
       local x=tonumber(prompt("X")); local y=tonumber(prompt("Y")); local z=tonumber(prompt("Z"))
       if name and name~="" and x and y and z then
         local target={name=name,x=x,y=y,z=z}
-        data.targets[name]=target; saveData(data)
+        data.targets[name]=target; saveData(data); message="Saved local waypoint: "..name
       end
     elseif key==keys.e then
-      local name=prompt("Target to edit")
+      local name=prompt("Waypoint to edit")
       local target=data.targets[name]
       if target then
-        local newName=prompt("Target name",target.name or name)
+        local newName=prompt("Waypoint name",target.name or name)
         local x=tonumber(prompt("X",target.x)); local y=tonumber(prompt("Y",target.y)); local z=tonumber(prompt("Z",target.z))
         if newName and newName~="" and x and y and z then
           local updated={name=newName,x=x,y=y,z=z}
@@ -369,16 +369,16 @@ local function targetsPage(data)
             if changed then request("save-schedule",{schedule=schedule}) end
           end
           saveData(data)
-          message="Edited target: "..newName.." (updated "..tostring(changedRoutes+changedSchedules).." stops)"
+          message="Edited local waypoint: "..newName.." (updated "..tostring(changedRoutes+changedSchedules).." stops)"
         else
-          message="Invalid target"
+          message="Invalid waypoint"
         end
-      else message="Target not found" end
+      else message="Waypoint not found" end
     elseif key==keys.g then
-      local name=prompt("Target to activate")
-      if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Target not found" end
+      local name=prompt("Waypoint to activate")
+      if data.targets[name] then activateTarget(data,data.targets[name]); return else message="Waypoint not found" end
     elseif key==keys.d then
-      local name=prompt("Target to delete")
+      local name=prompt("Waypoint to delete")
       if data.targets[name] and confirm("Delete "..name) then data.targets[name]=nil; saveData(data) end
     end
   end
