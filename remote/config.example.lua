@@ -1,6 +1,7 @@
 return {
   activeProfile = "default",
   autoRefresh = true,
+  monitorTelemetry = false,
   -- The beacon runs silently beside the NavRemote UI. A wireless or Ender modem
   -- and GPS coverage are required before it can transmit a position.
   locationBeacon = {

@@ -254,6 +254,7 @@ local newRefresh = [[local function refresh(data,silent)
     connectionState.latency=nowMs()-started
     connectionState.changed=nowMs()
     data.lastStatus=response.data
+    if renderMonitorTelemetry then renderMonitorTelemetry(data) end
     data.lastContact=nowMs()
     data.lastLatency=connectionState.latency
     if not wasOnline then Storage.log(data,"INFO","Aircraft connected") end
@@ -265,13 +266,16 @@ local newRefresh = [[local function refresh(data,silent)
   connectionState.error=err
   connectionState.changed=nowMs()
   if wasOnline then Storage.log(data,"WARN","Aircraft connection lost: "..tostring(err)) end
+  if data.preferences and data.preferences.monitorTelemetry == true and renderMonitorTelemetry then renderMonitorTelemetry(data, err) end
   if not silent then Storage.log(data,"WARN",err); saveData(data) end
   return data.lastStatus,err
 end]]
-source=source:gsub("local function refresh%(data,silent%).-\nend\n\nlocal function iconPosition",function(block)
+local refreshStart=source:find("local function refresh(data,silent)",1,true)
+local refreshEnd=refreshStart and (source:find("\n\nlocal function monitorNames",refreshStart,true) or source:find("\n\nlocal function iconPosition",refreshStart,true))
+if refreshStart and refreshEnd then
+  source=source:sub(1,refreshStart-1)..newRefresh..source:sub(refreshEnd)
   count=count+1
-  return newRefresh.."\n\nlocal function iconPosition"
-end,1)
+end
 
 local newModes = [[local function modesPage(data)
   local modes={"standby","navigate","hover","return-home"}

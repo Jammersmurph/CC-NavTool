@@ -87,6 +87,7 @@ local function defaults(name)
       desktopCategory = "HOME",
       selectedIcon = 1,
       autoRefresh = true,
+      monitorTelemetry = false,
       arrivalRadius = 5,
       manualStrength = 2,
     },
@@ -114,6 +115,7 @@ function Storage.load(profileName)
   if data.preferences.desktopCategory == nil then data.preferences.desktopCategory = "HOME" end
   if data.preferences.selectedIcon == nil then data.preferences.selectedIcon = 1 end
   if data.preferences.autoRefresh == nil then data.preferences.autoRefresh = true end
+  if data.preferences.monitorTelemetry == nil then data.preferences.monitorTelemetry = false end
   if data.preferences.arrivalRadius == nil then data.preferences.arrivalRadius = 5 end
   if data.preferences.manualStrength == nil then data.preferences.manualStrength = 2 end
   data.eventLog = type(data.eventLog) == "table" and data.eventLog or {}

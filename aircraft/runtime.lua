@@ -4,6 +4,7 @@
 
 local ROOT = "/navtool"
 local SOURCE_PATH = ROOT .. "/navtool.lua"
+local runtimeArgs = { ... }
 
 -- CC: Sable is a hard runtime requirement. Load its API into the global namespace
 -- before navtool and the integrated controller start.
@@ -60,6 +61,7 @@ end
 
 local source, err = readAll(SOURCE_PATH)
 if not source then printError(err); return end
+source = source:gsub("local args = %{%s*%.%.%.%s*%}", "local args = __navtoolRuntimeArgs or {}", 1)
 
 local anchor = "local lastGpsFix\n"
 local injection = [[local lastGpsFix
@@ -199,7 +201,8 @@ if replacements < 15 then
   return
 end
 
+_G.__navtoolRuntimeArgs = runtimeArgs
 local program, loadErr = load(source, "@" .. SOURCE_PATH, "t", _ENV)
 if not program then printError("Could not load navtool: " .. tostring(loadErr)); return end
 
-return program(...)
+return program()

@@ -26,65 +26,56 @@ function Patch.apply(source)
   config.onboardingComplete = true]]
   end, 1)
 
+  source = source:gsub("local setScheduleStop", function()
+    count = count + 1
+    return [[local function patchedRemoteCommand(config, request)
+  if request.command == "hardware-list" then
+    local description = Hardware.describe(config)
+    description.modes = description.modes or {}
+    description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+    if description.modes.airshipVertical == nil then
+      local output = type(config.outputs) == "table" and (config.outputs.up or config.outputs.down) or nil
+      local target = type(output) == "table" and (type(output.targets) == "table" and output.targets[1] or output) or nil
+      local okValue, value = target and target.side and pcall(redstone.getAnalogOutput, target.side)
+      if okValue then description.modes.airshipVertical = tonumber(value) or 0 end
+    end
+    return true, { ok = true, hardware = description }
+  elseif request.command == "hardware-assign" then
+    local okAssign, result = Hardware.assign(config, request)
+    if okAssign then saveConfig(config); return true, { ok = true, assignment = result, hardware = Hardware.describe(config) } end
+    return true, { ok = false, error = result }
+  elseif request.command == "hardware-unassign" then
+    local okUnassign, result = Hardware.unassign(config, request)
+    if okUnassign then saveConfig(config); return true, { ok = true, assignment = result, hardware = Hardware.describe(config) } end
+    return true, { ok = false, error = result }
+  elseif request.command == "hardware-test" then
+    local okTest, result = Hardware.test(config, request.control, request.strength)
+    return true, okTest and { ok = true } or { ok = false, error = result }
+  elseif request.command == "location-list" then
+    return true, { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following(), tracking = LocationNetwork.status() }
+  elseif request.command == "follow-remote" then
+    local okFollow, result = LocationNetwork.follow(request.remote)
+    return true, okFollow and { ok = true, remote = result, following = result.id } or { ok = false, error = result }
+  elseif request.command == "auto-home" then
+    local okHome, result = LocationNetwork.autoHome(request.remote)
+    return true, okHome and { ok = true, remote = result } or { ok = false, error = result }
+  elseif request.command == "stop-follow" then
+    LocationNetwork.stopFollow()
+    return true, { ok = true }
+  end
+  return false
+end
+
+local setScheduleStop]]
+  end, 1)
+
   source = source:gsub('        if request%.command == "ping" then', function()
     count = count + 1
-    return [[        if request.command == "hardware-list" then
-          local description = Hardware.describe(config)
-          description.modes = description.modes or {}
-          description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
-          response = { ok = true, hardware = description }
-        elseif request.command == "hardware-assign" then
-          local okAssign, result = Hardware.assign(config, request)
-          if okAssign then
-            saveConfig(config)
-            response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
-          else
-            response = { ok = false, error = result }
-          end
-        elseif request.command == "hardware-unassign" then
-          local okUnassign, result = Hardware.unassign(config, request)
-          if okUnassign then
-            saveConfig(config)
-            response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
-          else
-            response = { ok = false, error = result }
-          end
-        elseif request.command == "hardware-test" then
-          local okTest, result = Hardware.test(config, request.control, request.strength)
-          response = okTest and { ok = true } or { ok = false, error = result }
-        elseif request.command == "airship-vertical-control" then
-          if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then
-            response = { ok = false, error = "airship mode is off" }
-          else
-            local safety = type(config.safety) == "table" and config.safety or {}
-            local strength = math.max(0, math.min(tonumber(safety.maximumOutput) or 15, tonumber(request.strength) or 0))
-            local okVertical = select(1, pcall(setOutput, config, "up", strength))
-            response = okVertical and { ok = true, control = "airship-vertical", value = strength } or { ok = false, error = "vertical output failed" }
-          end
-        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
-          config.hardware = type(config.hardware) == "table" and config.hardware or {}
-          if tostring(request.mode or "") == "airship" then
-            config.hardware.airshipMode = request.enabled == true
-            saveConfig(config)
-            local description = Hardware.describe(config)
-            description.modes = description.modes or {}
-            description.modes.airship = config.hardware.airshipMode == true
-            response = { ok = true, hardware = description }
-          else
-            response = { ok = false, error = "invalid hardware mode" }
-          end
-        elseif request.command == "location-list" then
-          response = { ok = true, remotes = LocationNetwork.list(), following = LocationNetwork.following(), tracking = LocationNetwork.status() }
-        elseif request.command == "follow-remote" then
-          local okFollow, result = LocationNetwork.follow(request.remote)
-          response = okFollow and { ok = true, remote = result, following = result.id } or { ok = false, error = result }
-        elseif request.command == "auto-home" then
-          local okHome, result = LocationNetwork.autoHome(request.remote)
-          response = okHome and { ok = true, remote = result } or { ok = false, error = result }
-        elseif request.command == "stop-follow" then
-          LocationNetwork.stopFollow()
-          response = { ok = true }
-        elseif request.command == "ping" then]]
+    return [[        do
+          local handled, patchedResponse = patchedRemoteCommand(config, request)
+          if handled then
+            response = patchedResponse
+          elseif request.command == "ping" then]]
   end, 1)
 
   source = source:gsub('elseif request%.command == "set%-target" and type%(request%.target%) == "table" then\n          saveTarget%(request%.target%)', function()
@@ -94,6 +85,34 @@ function Patch.apply(source)
           saveActiveSchedule(nil)
           saveTarget(request.target)]]
   end, 1)
+
+  source = source:gsub('        end\n        if not responseSent then rednet%.send%(sender, response, channel%) end', function()
+    count = count + 1
+    return [[        end
+        end
+        if not responseSent then rednet.send(sender, response, channel) end]]
+  end, 1)
+
+  source = source:gsub('  saveTarget%(schedule%.stops%[1%]%)\n  saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[  LocationNetwork.stopFollow()
+  saveTarget(schedule.stops[1])
+  saveMode("navigate")]]
+  end, 1)
+
+  source = source:gsub('  saveTarget%(schedule%.stops%[index%]%)\n  saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[  LocationNetwork.stopFollow()
+  saveTarget(schedule.stops[index])
+  saveMode("navigate")]]
+  end, 1)
+
+  source = source:gsub('        saveTarget%(stop%)\n        saveMode%("navigate"%)', function()
+    count = count + 1
+    return [[        LocationNetwork.stopFollow()
+        saveTarget(stop)
+        saveMode("navigate")]]
+  end, 2)
 
   source = source:gsub("local function interface%(config%)", function()
     count = count + 1

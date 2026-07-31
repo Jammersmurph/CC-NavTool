@@ -1,4 +1,4 @@
-local VERSION = "0.5.1"
+local VERSION = "0.5.2"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -8,31 +8,8 @@ local SCHEDULES_PATH = ROOT .. "/schedules.db"
 local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
+local ScheduleDirector = dofile(ROOT .. "/lib/flight_director.lua")
 
-local CARDINAL_TO_DEGREES = {
-  n = 0, ne = 45, e = 90, se = 135, s = 180, sw = 225, w = 270, nw = 315,
-}
-local DEGREES_TO_CARDINAL = {
-  [0] = "N", [45] = "NE", [90] = "E", [135] = "SE",
-  [180] = "S", [225] = "SW", [270] = "W", [315] = "NW",
-}
-
-local function cardinalToDegrees(input)
-  if input == nil or input == "" then return nil end
-  local key = tostring(input):lower()
-  return CARDINAL_TO_DEGREES[key]
-end
-
-local function degreesToCardinal(degrees)
-  degrees = math.floor((tonumber(degrees) or 0) + 0.5) % 360
-  local best, bestDist = "N", 360
-  for deg, label in pairs(DEGREES_TO_CARDINAL) do
-    local dist = math.abs(degrees - deg)
-    if dist > 180 then dist = 360 - dist end
-    if dist < bestDist then best, bestDist = label, dist end
-  end
-  return best
-end
 local lastGpsFix
 
 local function loadConfig()
@@ -43,8 +20,16 @@ local function loadConfig()
     config.network.protocol = nil
     config._migrated = true
   end
-  if type(config.flightControl) == "table" and tonumber(config.flightControl.minimumThrustAlignment) == 0.75 then
-    config.flightControl.minimumThrustAlignment = 0.65
+  if type(config.flightControl) == "table" and (tonumber(config.flightControl.minimumThrustAlignment) or 0) < 0.985 then
+    config.flightControl.minimumThrustAlignment = 0.985
+    config._migrated = true
+  end
+  if type(config.flightControl) == "table" and config.flightControl.minimumYawOutput == nil then
+    config.flightControl.minimumYawOutput = 1
+    config._migrated = true
+  end
+  if type(config.flightControl) == "table" and config.flightControl.minimumForwardOutput == nil then
+    config.flightControl.minimumForwardOutput = 2
     config._migrated = true
   end
   if type(config.safety) == "table" and tonumber(config.safety.maximumOutput) == 5 then
@@ -75,12 +60,20 @@ local function loadConfig()
     config.navigation.finalOutputMaximum = 2
     config._migrated = true
   end
+  if type(config.navigation) == "table" and config.navigation.finalOutputRadius == nil then
+    config.navigation.finalOutputRadius = 10
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 10) then
     config.navigation.finalVerticalRadius = 25
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.finalVerticalOutputMaximum == nil then
     config.navigation.finalVerticalOutputMaximum = 2
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and config.navigation.finalVerticalUpOutputMaximum == nil then
+    config.navigation.finalVerticalUpOutputMaximum = 3
     config._migrated = true
   end
   return config
@@ -401,6 +394,18 @@ local function setAirshipVerticalOutput(config, strength)
   return wrote, applied
 end
 
+local function airshipVerticalOutput(config)
+  if type(config.hardware) ~= "table" or config.hardware.airshipMode ~= true then return false, "airship mode is off" end
+  local outputs = type(config.outputs) == "table" and config.outputs or {}
+  local targets = outputTargets(outputs.up)
+  if #targets == 0 then targets = outputTargets(outputs.down) end
+  local target = targets[1]
+  if type(target) ~= "table" or not target.side then return false, "vertical output unassigned" end
+  local ok, value = pcall(redstone.getAnalogOutput, target.side)
+  if not ok then return false, value end
+  return true, tonumber(value) or 0
+end
+
 local function applyOutputs(config, requested)
   local ok, applied = pcall(applyOutputValues, config, requested or {})
   return ok and applied or {}
@@ -513,9 +518,16 @@ local function saveActiveSchedule(active)
   saveData(ACTIVE_SCHEDULE_PATH, active)
 end
 
+local function withoutFinalHeading(value)
+  if type(value) ~= "table" then return value end
+  local copy = {}
+  for key, item in pairs(value) do if key ~= "heading" then copy[key] = item end end
+  return copy
+end
+
 local function saveTarget(target)
   local file = fs.open(TARGET_PATH, "w")
-  file.write(textutils.serialize(target))
+  file.write(textutils.serialize(withoutFinalHeading(target)))
   file.close()
 end
 
@@ -790,6 +802,39 @@ local function distance(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function scheduleStopArrival(config, state, stop)
+  stop = withoutFinalHeading(stop)
+  local position = state and state.position
+  if type(position) ~= "table" or type(stop) ~= "table" then return false, nil end
+  local navigation = type(config.navigation) == "table" and config.navigation or {}
+  local radius = math.max(0.001, tonumber(navigation.arrivalRadius) or 1)
+  if type(config.hardware) == "table" and config.hardware.airshipMode == true then
+    radius = math.max(radius, tonumber(navigation.airshipArrivalRadius) or 6)
+  end
+  local dx = (tonumber(stop.x) or 0) - (tonumber(position.x) or 0)
+  local dy = (tonumber(stop.y) or 0) - (tonumber(position.y) or 0)
+  local dz = (tonumber(stop.z) or 0) - (tonumber(position.z) or 0)
+  local directDistance = math.sqrt(dx * dx + dy * dy + dz * dz)
+  local arrived = directDistance <= radius
+  local details = {
+    xError = dx,
+    yError = dy,
+    zError = dz,
+    distance = directDistance,
+    arrivalRadius = radius,
+    axesReached = arrived,
+    settled = arrived,
+    headingReached = true,
+    arrived = arrived,
+  }
+  local ok, directorArrived, directorDetails = pcall(ScheduleDirector.arrivalStatus, state, stop, config)
+  if ok and type(directorDetails) == "table" then
+    for key, value in pairs(directorDetails) do if details[key] == nil then details[key] = value end end
+    details.directorArrived = directorArrived == true
+  end
+  return arrived, details
+end
+
 local gpsFix
 local snapshot
 
@@ -806,10 +851,7 @@ local function promptTarget()
   write("Z: ")
   local z = tonumber(read())
   if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-  write("Final heading N/S/E/W (blank=any): ")
-  local heading = cardinalToDegrees(read())
   local target = { name = name ~= "" and name or nil, x = x, y = y, z = z }
-  if heading then target.heading = heading end
   saveTarget(target)
   print("Target saved.")
   sleep(1)
@@ -839,11 +881,8 @@ local function promptWaypoint(config)
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
     position = { x = x, y = y, z = z }
   end
-  write("Final heading N/S/E/W (blank=any): ")
-  local heading = cardinalToDegrees(read())
   local waypoints = loadWaypoints()
   waypoints[name] = { name = name, x = position.x, y = position.y, z = position.z }
-  if heading then waypoints[name].heading = heading end
   saveWaypoints(waypoints)
   print("Waypoint saved.")
   sleep(1)
@@ -871,10 +910,7 @@ local function promptSchedule()
     write("  Z: ")
     local z = tonumber(read())
     if not x or not y or not z then printError("Coordinates must be numbers."); sleep(1.5); return end
-    write("  Final heading N/S/E/W (blank=any): ")
-    local heading = cardinalToDegrees(read())
     local stop = { name = label ~= "" and label or ("Stop " .. index), x = x, y = y, z = z }
-    if heading then stop.heading = heading end
     stops[#stops + 1] = stop
   end
   write("Dwell seconds at each stop: ")
@@ -1039,6 +1075,10 @@ snapshot = function(config, options)
   if includeLibrary then waypoints, names = waypointList() else waypoints, names = {}, {} end
   if includeLibrary then schedules, scheduleNames = scheduleList() else schedules, scheduleNames = {}, {} end
   local activeSchedule = includeSchedule and loadActiveSchedule() or nil
+  if includeSchedule and activeSchedule and not includeLibrary then
+    local allSchedules = loadSchedules()
+    schedules = allSchedules[activeSchedule.name] and { [activeSchedule.name] = allSchedules[activeSchedule.name] } or {}
+  end
   local mode = loadMode().mode or "standby"
   local heading, headingSource, rawOrientation = orientationHeading(config, orientationPeripheral)
   if avionicsState and avionicsState.heading then
@@ -1059,6 +1099,22 @@ snapshot = function(config, options)
   local pose = (subState and subState.pose) or (legacyState and legacyState.pose)
   if not heading then heading, headingSource = headingFromPose(config, pose) end
   local source = subState and "sublevel" or (legacyState and legacyState.peripheral) or (gpsData and "gps") or "none"
+  local scheduleArrival
+  if activeSchedule and schedules and position then
+    local schedule = schedules[activeSchedule.name]
+    local stops = schedule and schedule.stops
+    local index = math.max(1, math.min(stops and #stops or 1, tonumber(activeSchedule.index) or 1))
+    local stop = stops and stops[index]
+    if stop then
+      local arrived, details = scheduleStopArrival(config, {
+        position = position,
+        velocity = velocity,
+        heading = heading,
+      }, stop)
+      scheduleArrival = details or {}
+      scheduleArrival.arrived = arrived == true
+    end
+  end
   return {
     version = VERSION,
     telemetry = position ~= nil or heading ~= nil,
@@ -1097,9 +1153,12 @@ snapshot = function(config, options)
     schedules = schedules,
     scheduleNames = scheduleNames,
     activeSchedule = activeSchedule,
+    scheduleArrival = scheduleArrival,
     mode = mode,
   }
 end
+
+local setScheduleStop
 
 local function server(config, debug)
   if not config.network or not config.network.enabled then
@@ -1142,9 +1201,23 @@ local function server(config, debug)
         if request.command == "ping" then
           response = { ok = true, pong = true, id = os.getComputerID and os.getComputerID() or nil }
         elseif request.command == "live-status" then
-          response = { ok = true, data = snapshot(config, { library = false, schedule = false, gps = false }) }
+          response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
+        elseif request.command == "orientation-status" then
+          config.orientation = type(config.orientation) == "table" and config.orientation or {}
+          local state = snapshot(config, { library = false, schedule = false, gps = false })
+          response = { ok = true, yawOffset = tonumber(config.orientation.yawOffset) or 0, heading = state.heading, headingSource = state.headingSource }
+        elseif request.command == "orientation-set" then
+          config.orientation = type(config.orientation) == "table" and config.orientation or {}
+          local offset = tonumber(request.yawOffset)
+          if offset then
+            config.orientation.yawOffset = ((offset + 180) % 360) - 180
+            saveConfig(config)
+            response = { ok = true, yawOffset = config.orientation.yawOffset }
+          else
+            response = { ok = false, error = "invalid yaw offset" }
+          end
         elseif request.command == "set-target" and type(request.target) == "table" then
           saveTarget(request.target)
           response = { ok = true, target = request.target }
@@ -1194,6 +1267,9 @@ local function server(config, debug)
           local safety = type(config.safety) == "table" and config.safety or {}
           local strength = math.max(0, math.min(tonumber(safety.maximumOutput) or 15, tonumber(request.strength) or 0))
           local okAirship, value = setAirshipVerticalOutput(config, strength)
+          response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
+        elseif request.command == "airship-vertical-status" then
+          local okAirship, value = airshipVerticalOutput(config)
           response = okAirship and { ok = true, control = "airship-vertical", value = value or 0 } or { ok = false, error = value }
         elseif request.command == "monitor-list" then
           response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
@@ -1249,8 +1325,6 @@ local function server(config, debug)
               local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
               if not x or not y or not z then normalized = nil; break end
               local normalizedStop = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
-              local heading = tonumber(stop.heading)
-              if heading then normalizedStop.heading = heading end
               normalized[#normalized + 1] = normalizedStop
             end
             if normalized then
@@ -1300,9 +1374,12 @@ local function server(config, debug)
             local schedules = loadSchedules()
             local schedule = schedules[active.name]
             if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
+              local completed = false
+              local currentIndex = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
               active.dwellIndex = nil
               active.dwellUntil = nil
-              if active.index >= #schedule.stops then
+              active.paused = nil
+              if currentIndex >= #schedule.stops then
                 if schedule.loop then
                   active.index = 1
                 else
@@ -1310,14 +1387,13 @@ local function server(config, debug)
                   saveMode("standby")
                   clearOutputs(config)
                   response = { ok = true, status = "complete" }
+                  completed = true
                 end
               else
-                active.index = active.index + 1
+                active.index = currentIndex + 1
               end
-              if response.ok == nil then
-                saveActiveSchedule(active)
-                saveTarget(schedule.stops[active.index])
-                saveMode("navigate")
+              if not completed then
+                setScheduleStop(active, schedule, active.index)
                 response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
               end
             else
@@ -1327,12 +1403,19 @@ local function server(config, debug)
             response = { ok = false, error = "no active schedule" }
           end
         elseif request.command == "pause-schedule" then
+          local active = loadActiveSchedule()
+          if active then
+            active.paused = true
+            saveActiveSchedule(active)
+          end
           saveMode("standby")
           pendingClearOutputs = true
-          response = { ok = true }
+          response = active and { ok = true } or { ok = false, error = "no active schedule" }
         elseif request.command == "resume-schedule" then
           local active = loadActiveSchedule()
           if active then
+            active.paused = nil
+            saveActiveSchedule(active)
             saveMode("navigate")
             response = { ok = true }
           else
@@ -1598,15 +1681,18 @@ local function nowSeconds()
 end
 
 local function stopReached(config, state, stop)
-  local navigation = type(config.navigation) == "table" and config.navigation or {}
-  local position = extractVector(state and state.position)
-  if not position or type(stop) ~= "table" then return false end
-  local horizontalTolerance = math.max(0.001, tonumber(navigation.coordinateTolerance) or 0.05)
-  local verticalTolerance = math.max(0.001, tonumber(navigation.verticalTolerance) or horizontalTolerance)
-  local dx = (tonumber(stop.x) or position.x) - position.x
-  local dy = (tonumber(stop.y) or position.y) - position.y
-  local dz = (tonumber(stop.z) or position.z) - position.z
-  return math.abs(dx) <= horizontalTolerance and math.abs(dy) <= verticalTolerance and math.abs(dz) <= horizontalTolerance
+  if type(stop) ~= "table" then return false end
+  local arrived = scheduleStopArrival(config, state, stop)
+  return arrived == true
+end
+
+setScheduleStop = function(active, schedule, index)
+  active.index = index
+  active.dwellIndex = nil
+  active.dwellUntil = nil
+  saveTarget(schedule.stops[index])
+  saveMode("navigate")
+  saveActiveSchedule(active)
 end
 
 local function advanceScheduleStop(config, active, schedule, index, state)
@@ -1636,10 +1722,7 @@ local function advanceScheduleStop(config, active, schedule, index, state)
   active.dwellUntil = nil
   if index >= #schedule.stops then
     if schedule.loop == true then
-      active.index = 1
-      saveActiveSchedule(active)
-      saveTarget(schedule.stops[1])
-      saveMode("navigate")
+      setScheduleStop(active, schedule, 1)
       return true, "loop"
     end
     saveActiveSchedule(nil)
@@ -1648,10 +1731,7 @@ local function advanceScheduleStop(config, active, schedule, index, state)
     return true, "complete"
   end
 
-  active.index = index + 1
-  saveActiveSchedule(active)
-  saveTarget(schedule.stops[active.index])
-  saveMode("navigate")
+  setScheduleStop(active, schedule, index + 1)
   return true, "advance"
 end
 
@@ -1659,6 +1739,13 @@ serverAutomationTick = function(config, outputController)
   local state = snapshot(config, { library = false, gps = false })
   local active = state.activeSchedule
   if active then
+    if active.paused == true then
+      state.mode = "standby"
+      local requested, notes = automationOutputs(config, state)
+      local applied = outputController and outputController(requested, true) or applyOutputs(config, requested)
+      notes[#notes + 1] = "schedule paused"
+      return state, requested, applied, notes
+    end
     local schedules = loadSchedules()
     local schedule = schedules[active.name]
     if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then
@@ -1829,8 +1916,7 @@ end
 local function targetText(target)
   if not target then return "none" end
   local name = target.name and (target.name .. " ") or ""
-  local heading = target.heading and (" h" .. degreesToCardinal(target.heading)) or ""
-  return string.format("%s%.1f %.1f %.1f%s", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0, heading)
+  return string.format("%s%.1f %.1f %.1f", name, tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
 end
 
 renderMonitorStatus = function(config, state, requested, applied, notes)

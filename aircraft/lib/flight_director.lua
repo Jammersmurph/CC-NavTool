@@ -201,9 +201,11 @@ function Director.solve(state, target, config)
     arrivalRadius = math.max(arrivalRadius, tonumber(navigation.airshipArrivalRadius) or 6)
   end
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
+  local finalOutputRadius = math.max(arrivalRadius, tonumber(navigation.finalOutputRadius) or 10)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
   local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 25)
   local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
+  local finalVerticalUpOutputMaximum = math.max(finalVerticalOutputMaximum, math.min(15, tonumber(navigation.finalVerticalUpOutputMaximum) or 3))
 
   -- Horizontal propulsion must depend only on horizontal error. A large altitude
   -- difference must never produce forward thrust after X/Z have been acquired.
@@ -216,7 +218,7 @@ function Director.solve(state, target, config)
   local shouldBrake = horizontalDistance <= brakeRadius and approachSpeedAlong > (tonumber(navigation.stopSpeed) or 0.5)
   local finalCapture = horizontalDistance <= arrivalRadius
   local targetHeading = headingVector(requestedTarget and requestedTarget.heading)
-  if targetHeading and horizontalDistance <= brakeRadius then heading = targetHeading end
+  if targetHeading and horizontalDistance <= arrivalRadius then heading = targetHeading end
 
   local arrived, arrival = Director.arrivalStatus(state, requestedTarget, config)
   return {
@@ -240,9 +242,11 @@ function Director.solve(state, target, config)
     horizontalTolerance = stage and stage.horizontalTolerance or nil,
     arrivalRadius = arrivalRadius,
     brakeRadius = brakeRadius,
+    finalOutputRadius = finalOutputRadius,
     finalOutputMaximum = finalOutputMaximum,
     finalVerticalRadius = finalVerticalRadius,
     finalVerticalOutputMaximum = finalVerticalOutputMaximum,
+    finalVerticalUpOutputMaximum = finalVerticalUpOutputMaximum,
     shouldBrake = shouldBrake,
     finalCapture = finalCapture,
     approachSpeedAlong = approachSpeedAlong,

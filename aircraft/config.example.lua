@@ -37,6 +37,7 @@ return {
     settleVelocity = 0.5,
     arrivalRadius = 1,
     brakeRadius = 75,
+    finalOutputRadius = 10,
     headingTolerance = 4,
     airshipArrivalRadius = 6,
     airshipVerticalTolerance = 8,
@@ -45,6 +46,7 @@ return {
     finalOutputMaximum = 2,
     finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,
+    finalVerticalUpOutputMaximum = 3,
     stopSpeed = 0.5,
 
     -- Staged altitude navigation:
@@ -77,7 +79,9 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.65,
+    minimumThrustAlignment = 0.985,
+    minimumYawOutput = 1,
+    minimumForwardOutput = 2,
     hoverVelocityGain = 0.18,
     headingPID = {
       kp = 1.6, ki = 0.02, kd = 0.45,
