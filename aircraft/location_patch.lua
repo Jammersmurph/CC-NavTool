@@ -86,13 +86,6 @@ local setScheduleStop]]
           saveTarget(request.target)]]
   end, 1)
 
-  source = source:gsub('        end\n        if not responseSent then rednet%.send%(sender, response, channel%) end', function()
-    count = count + 1
-    return [[        end
-        end
-        if not responseSent then rednet.send(sender, response, channel) end]]
-  end, 1)
-
   source = source:gsub('  saveTarget%(schedule%.stops%[1%]%)\n  saveMode%("navigate"%)', function()
     count = count + 1
     return [[  LocationNetwork.stopFollow()
