@@ -1,4 +1,4 @@
-local VERSION = "0.5.2"
+local VERSION = "0.5.3"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -1160,6 +1160,110 @@ end
 
 local setScheduleStop
 
+local function handleWaypointCommand(config, request)
+  if request.command == "waypoint-list" then
+    local waypoints, names = waypointList()
+    return true, { ok = true, waypoints = waypoints, names = names }
+  elseif request.command == "save-waypoint" and type(request.waypoint) == "table" then
+    local waypoint = request.waypoint
+    local name = tostring(waypoint.name or "")
+    local x, y, z = tonumber(waypoint.x), tonumber(waypoint.y), tonumber(waypoint.z)
+    if name ~= "" and x and y and z then
+      local waypoints = loadWaypoints()
+      waypoints[name] = { name = name, x = x, y = y, z = z }
+      saveWaypoints(waypoints)
+      return true, { ok = true, waypoint = waypoints[name] }
+    end
+    return true, { ok = false, error = "invalid waypoint" }
+  elseif request.command == "delete-waypoint" then
+    local waypoints = loadWaypoints()
+    waypoints[tostring(request.name or "")] = nil
+    saveWaypoints(waypoints)
+    return true, { ok = true }
+  elseif request.command == "goto-waypoint" then
+    local waypoints = loadWaypoints()
+    local waypoint = waypoints[tostring(request.name or "")]
+    if waypoint then
+      saveTarget(waypoint)
+      saveMode("navigate")
+      return true, { ok = true, target = waypoint }
+    end
+    return true, { ok = false, error = "waypoint not found" }
+  end
+  return false
+end
+
+local function handleScheduleCommand(config, request)
+  if request.command == "schedule-list" then
+    local schedules, names = scheduleList()
+    return true, { ok = true, schedules = schedules, names = names, active = loadActiveSchedule() }
+  elseif request.command == "save-schedule" and type(request.schedule) == "table" then
+    local schedule = request.schedule
+    local name = tostring(schedule.name or "")
+    local stops = type(schedule.stops) == "table" and schedule.stops or {}
+    if name == "" or #stops == 0 then return true, { ok = false, error = "invalid schedule" } end
+    local normalized = {}
+    for index, stop in ipairs(stops) do
+      local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
+      if not x or not y or not z then return true, { ok = false, error = "invalid schedule stop" } end
+      normalized[#normalized + 1] = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
+    end
+    local schedules = loadSchedules()
+    schedules[name] = { name = name, stops = normalized, dwell = math.max(0, tonumber(schedule.dwell) or 0), loop = schedule.loop == true }
+    saveSchedules(schedules)
+    return true, { ok = true, schedule = schedules[name] }
+  elseif request.command == "delete-schedule" then
+    local schedules = loadSchedules()
+    local name = tostring(request.name or "")
+    schedules[name] = nil
+    saveSchedules(schedules)
+    local active = loadActiveSchedule()
+    if active and active.name == name then saveActiveSchedule(nil); saveMode("standby") end
+    return true, { ok = true }
+  elseif request.command == "run-schedule" then
+    local ok, result = startSchedule(tostring(request.name or ""))
+    return true, ok and { ok = true, target = result } or { ok = false, error = result }
+  elseif request.command == "stop-schedule" then
+    saveActiveSchedule(nil)
+    saveMode("standby")
+    clearOutputs(config)
+    return true, { ok = true }
+  elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
+    config.hardware = type(config.hardware) == "table" and config.hardware or {}
+    if tostring(request.mode or "") == "airship" then
+      config.hardware.airshipMode = request.enabled == true
+      saveConfig(config)
+      return true, { ok = true, hardware = { modes = { airship = config.hardware.airshipMode == true } } }
+    end
+    return true, { ok = false, error = "invalid hardware mode" }
+  elseif request.command == "skip-stop" then
+    local active = loadActiveSchedule()
+    if not active then return true, { ok = false, error = "no active schedule" } end
+    local schedules = loadSchedules()
+    local schedule = schedules[active.name]
+    if not schedule or type(schedule.stops) ~= "table" or #schedule.stops == 0 then return true, { ok = false, error = "no active schedule" } end
+    local currentIndex = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
+    active.dwellIndex, active.dwellUntil, active.paused = nil, nil, nil
+    if currentIndex >= #schedule.stops then
+      if schedule.loop then active.index = 1 else saveActiveSchedule(nil); saveMode("standby"); clearOutputs(config); return true, { ok = true, status = "complete" } end
+    else
+      active.index = currentIndex + 1
+    end
+    setScheduleStop(active, schedule, active.index)
+    return true, { ok = true, stop = active.index, target = schedule.stops[active.index] }
+  elseif request.command == "pause-schedule" then
+    local active = loadActiveSchedule()
+    if active then active.paused = true; saveActiveSchedule(active) end
+    saveMode("standby")
+    return true, active and { ok = true, clearOutputs = true } or { ok = false, error = "no active schedule" }
+  elseif request.command == "resume-schedule" then
+    local active = loadActiveSchedule()
+    if active then active.paused = nil; saveActiveSchedule(active); saveMode("navigate"); return true, { ok = true } end
+    return true, { ok = false, error = "no active schedule" }
+  end
+  return false
+end
+
 local function server(config, debug)
   if not config.network or not config.network.enabled then
     printError("Networking is disabled in /navtool/config.lua")
@@ -1198,7 +1302,12 @@ local function server(config, debug)
         local response = { ok = false, error = "unauthorized" }
         local responseSent = false
         if valid then
-        if request.command == "ping" then
+        local handled, handledResponse = handleWaypointCommand(config, request)
+        if not handled then handled, handledResponse = handleScheduleCommand(config, request) end
+        if handled then
+          response = handledResponse
+          if response and response.clearOutputs then pendingClearOutputs = true; response.clearOutputs = nil end
+        elseif request.command == "ping" then
           response = { ok = true, pong = true, id = os.getComputerID and os.getComputerID() or nil }
         elseif request.command == "live-status" then
           response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
@@ -1280,146 +1389,6 @@ local function server(config, debug)
             response = { ok = true, monitors = monitorList(config), selected = config.monitorPeripheral }
           else
             response = { ok = false, error = result }
-          end
-        elseif request.command == "waypoint-list" then
-          local waypoints, names = waypointList()
-          response = { ok = true, waypoints = waypoints, names = names }
-        elseif request.command == "save-waypoint" and type(request.waypoint) == "table" then
-          local waypoint = request.waypoint
-          local name = tostring(waypoint.name or "")
-          local x, y, z = tonumber(waypoint.x), tonumber(waypoint.y), tonumber(waypoint.z)
-          if name ~= "" and x and y and z then
-            local waypoints = loadWaypoints()
-            waypoints[name] = { name = name, x = x, y = y, z = z }
-            saveWaypoints(waypoints)
-            response = { ok = true, waypoint = waypoints[name] }
-          else
-            response = { ok = false, error = "invalid waypoint" }
-          end
-        elseif request.command == "delete-waypoint" then
-          local name = tostring(request.name or "")
-          local waypoints = loadWaypoints()
-          waypoints[name] = nil
-          saveWaypoints(waypoints)
-          response = { ok = true }
-        elseif request.command == "goto-waypoint" then
-          local name = tostring(request.name or "")
-          local waypoints = loadWaypoints()
-          if waypoints[name] then
-            saveTarget(waypoints[name])
-            saveMode("navigate")
-            response = { ok = true, target = waypoints[name] }
-          else
-            response = { ok = false, error = "waypoint not found" }
-          end
-        elseif request.command == "schedule-list" then
-          local schedules, names = scheduleList()
-          response = { ok = true, schedules = schedules, names = names, active = loadActiveSchedule() }
-        elseif request.command == "save-schedule" and type(request.schedule) == "table" then
-          local schedule = request.schedule
-          local name = tostring(schedule.name or "")
-          local stops = type(schedule.stops) == "table" and schedule.stops or {}
-          if name ~= "" and #stops > 0 then
-            local normalized = {}
-            for index, stop in ipairs(stops) do
-              local x, y, z = tonumber(stop.x), tonumber(stop.y), tonumber(stop.z)
-              if not x or not y or not z then normalized = nil; break end
-              local normalizedStop = { name = stop.name or ("Stop " .. index), x = x, y = y, z = z }
-              normalized[#normalized + 1] = normalizedStop
-            end
-            if normalized then
-              local schedules = loadSchedules()
-              schedules[name] = {
-                name = name,
-                stops = normalized,
-                dwell = math.max(0, tonumber(schedule.dwell) or 0),
-                loop = schedule.loop == true,
-              }
-              saveSchedules(schedules)
-              response = { ok = true, schedule = schedules[name] }
-            else
-              response = { ok = false, error = "invalid schedule stop" }
-            end
-          else
-            response = { ok = false, error = "invalid schedule" }
-          end
-        elseif request.command == "delete-schedule" then
-          local name = tostring(request.name or "")
-          local schedules = loadSchedules()
-          schedules[name] = nil
-          saveSchedules(schedules)
-          local active = loadActiveSchedule()
-          if active and active.name == name then saveActiveSchedule(nil); saveMode("standby") end
-          response = { ok = true }
-        elseif request.command == "run-schedule" then
-          local ok, result = startSchedule(tostring(request.name or ""))
-          if ok then response = { ok = true, target = result } else response = { ok = false, error = result } end
-        elseif request.command == "stop-schedule" then
-          saveActiveSchedule(nil)
-          saveMode("standby")
-          clearOutputs(config)
-          response = { ok = true }
-        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
-          config.hardware = type(config.hardware) == "table" and config.hardware or {}
-          if tostring(request.mode or "") == "airship" then
-            config.hardware.airshipMode = request.enabled == true
-            saveConfig(config)
-            response = { ok = true, hardware = { modes = { airship = config.hardware.airshipMode == true } } }
-          else
-            response = { ok = false, error = "invalid hardware mode" }
-          end
-        elseif request.command == "skip-stop" then
-          local active = loadActiveSchedule()
-          if active then
-            local schedules = loadSchedules()
-            local schedule = schedules[active.name]
-            if schedule and type(schedule.stops) == "table" and #schedule.stops > 0 then
-              local completed = false
-              local currentIndex = math.max(1, math.min(#schedule.stops, tonumber(active.index) or 1))
-              active.dwellIndex = nil
-              active.dwellUntil = nil
-              active.paused = nil
-              if currentIndex >= #schedule.stops then
-                if schedule.loop then
-                  active.index = 1
-                else
-                  saveActiveSchedule(nil)
-                  saveMode("standby")
-                  clearOutputs(config)
-                  response = { ok = true, status = "complete" }
-                  completed = true
-                end
-              else
-                active.index = currentIndex + 1
-              end
-              if not completed then
-                setScheduleStop(active, schedule, active.index)
-                response = { ok = true, stop = active.index, target = schedule.stops[active.index] }
-              end
-            else
-              response = { ok = false, error = "no active schedule" }
-            end
-          else
-            response = { ok = false, error = "no active schedule" }
-          end
-        elseif request.command == "pause-schedule" then
-          local active = loadActiveSchedule()
-          if active then
-            active.paused = true
-            saveActiveSchedule(active)
-          end
-          saveMode("standby")
-          pendingClearOutputs = true
-          response = active and { ok = true } or { ok = false, error = "no active schedule" }
-        elseif request.command == "resume-schedule" then
-          local active = loadActiveSchedule()
-          if active then
-            active.paused = nil
-            saveActiveSchedule(active)
-            saveMode("navigate")
-            response = { ok = true }
-          else
-            response = { ok = false, error = "no active schedule" }
           end
         elseif request.command == "stop" or request.command == "outputs-off" then
           manualUntil = {}
