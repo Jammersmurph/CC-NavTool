@@ -1,6 +1,6 @@
 -- CC-NavTool NavRemote installer (Advanced Computer only)
 local ROOT = "/navremote"
-local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/remote/"
+local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/remote/"
 local FILES = {
   { remote = "controller.lua", localPath = ROOT .. "/controller.lua" },
   { remote = "controller_runtime.lua", localPath = ROOT .. "/controller_runtime.lua" },
