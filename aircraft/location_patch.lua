@@ -78,12 +78,6 @@ local setScheduleStop]]
           elseif request.command == "ping" then]]
   end, 1)
 
-  source = source:gsub('        if not handled then handled, handledResponse = handleScheduleCommand%(config, request%) end', function()
-    count = count + 1
-    return [[        if not handled then handled, handledResponse = handleScheduleCommand(config, request) end
-        if not handled then handled, handledResponse = patchedRemoteCommand(config, request) end]]
-  end, 1)
-
   source = source:gsub('elseif request%.command == "set%-target" and type%(request%.target%) == "table" then\n          saveTarget%(request%.target%)', function()
     count = count + 1
     return [[elseif request.command == "set-target" and type(request.target) == "table" then
