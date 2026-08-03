@@ -137,7 +137,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     if err then writeAt(24,3,tostring(err):sub(1,24),colors.red) end
     if status then
       local caps=type(status.capabilities)=="table" and status.capabilities or {}
-      writeAt(3,4,("Aircraft v%s  HW:%s"):format(tostring(status.version or "?"),caps.hardware==true and "yes" or "no"),caps.hardware==true and colors.lightGray or colors.red)
+      writeAt(3,4,("Aircraft v%s  HW:%s"):format(tostring(status.version or "?"),caps.hardware==true and tostring(caps.hardwareSource or "yes") or "no"),caps.hardware==true and colors.lightGray or colors.red)
     elseif statusErr then
       writeAt(3,4,("Status: "..tostring(statusErr)):sub(1,45),colors.red)
     end
