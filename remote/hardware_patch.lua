@@ -128,14 +128,22 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     end
   end
   while true do
+    local statusResponse,statusErr=request("status")
+    local status=statusResponse and statusResponse.data or nil
     local response,err=request("hardware-list")
     local hardware=response and response.hardware or {assignments={},relays={}}
     clear(colors.black); header("Hardware",err and "[ OFFLINE ]" or "[ CONFIG ]")
     writeAt(3,3,"Flight output assignments",colors.cyan)
     if err then writeAt(24,3,tostring(err):sub(1,24),colors.red) end
-    if message and message ~= "" then writeAt(3,4,tostring(message):sub(1,45),colors.yellow) end
+    if status then
+      local caps=type(status.capabilities)=="table" and status.capabilities or {}
+      writeAt(3,4,("Aircraft v%s  HW:%s"):format(tostring(status.version or "?"),caps.hardware==true and "yes" or "no"),caps.hardware==true and colors.lightGray or colors.red)
+    elseif statusErr then
+      writeAt(3,4,("Status: "..tostring(statusErr)):sub(1,45),colors.red)
+    end
+    if message and message ~= "" then writeAt(3,5,tostring(message):sub(1,45),colors.yellow) end
     local rowControl={}
-    local y=5
+    local y=6
     for i,control in ipairs(controls) do
       local item=hardware.assignments and hardware.assignments[control]
       local multi=item and item.targets and #item.targets>1
