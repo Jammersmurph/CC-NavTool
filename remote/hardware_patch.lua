@@ -132,6 +132,7 @@ local hardwarePageSource = [==[local function hardwarePage(data)
     local hardware=response and response.hardware or {assignments={},relays={}}
     clear(colors.black); header("Hardware",err and "[ OFFLINE ]" or "[ CONFIG ]")
     writeAt(3,3,"Flight output assignments",colors.cyan)
+    if err then writeAt(24,3,tostring(err):sub(1,24),colors.red) end
     if message and message ~= "" then writeAt(3,4,tostring(message):sub(1,45),colors.yellow) end
     local rowControl={}
     local y=5

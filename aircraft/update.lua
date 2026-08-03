@@ -1,5 +1,5 @@
 local ROOT = "/navtool"
-local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/aircraft/"
+local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/aircraft/"
 local args = { ... }
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
@@ -53,7 +53,7 @@ end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
-print("Updating headless NavTool aircraft service from develop...")
+print("Updating headless NavTool aircraft service from main...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)

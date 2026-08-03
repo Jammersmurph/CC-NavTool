@@ -9,6 +9,8 @@ local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
 local ScheduleDirector = dofile(ROOT .. "/lib/flight_director.lua")
+local Hardware = fs.exists(ROOT .. "/hardware.lua") and dofile(ROOT .. "/hardware.lua") or nil
+if Hardware then Hardware.installRedstoneProxy() end
 
 local lastGpsFix
 
@@ -1160,6 +1162,32 @@ end
 
 local setScheduleStop
 
+local function handleHardwareCommand(config, request)
+  if not Hardware then return false end
+  if request.command == "hardware-list" then
+    local description = Hardware.describe(config)
+    description.modes = description.modes or {}
+    description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+    return true, { ok = true, hardware = description }
+  elseif request.command == "hardware-assign" then
+    local okAssign, result = Hardware.assign(config, request)
+    if okAssign then saveConfig(config); return true, { ok = true, assignment = result, hardware = Hardware.describe(config) } end
+    return true, { ok = false, error = result }
+  elseif request.command == "hardware-unassign" then
+    local okUnassign, result = Hardware.unassign(config, request)
+    if okUnassign then saveConfig(config); return true, { ok = true, assignment = result, hardware = Hardware.describe(config) } end
+    return true, { ok = false, error = result }
+  elseif request.command == "hardware-test" then
+    local okTest, result = Hardware.test(config, request.control, request.strength)
+    return true, okTest and { ok = true } or { ok = false, error = result }
+  elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
+    local okMode, result = Hardware.setMode(config, request)
+    if okMode then saveConfig(config); return true, { ok = true, hardware = result } end
+    return true, { ok = false, error = result }
+  end
+  return false
+end
+
 local function handleWaypointCommand(config, request)
   if request.command == "waypoint-list" then
     local waypoints, names = waypointList()
@@ -1302,7 +1330,8 @@ local function server(config, debug)
         local response = { ok = false, error = "unauthorized" }
         local responseSent = false
         if valid then
-        local handled, handledResponse = handleWaypointCommand(config, request)
+        local handled, handledResponse = handleHardwareCommand(config, request)
+        if not handled then handled, handledResponse = handleWaypointCommand(config, request) end
         if not handled then handled, handledResponse = handleScheduleCommand(config, request) end
         if handled then
           response = handledResponse
