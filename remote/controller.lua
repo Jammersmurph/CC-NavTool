@@ -1,4 +1,4 @@
-local VERSION = "0.5.4-nightly"
+local VERSION = "0.5.5"
 local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
