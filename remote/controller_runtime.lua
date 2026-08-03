@@ -156,10 +156,12 @@ local oldRequest = [[local function request(command, extra)
   end
   hostCache[key] = hostId
   local payload = extra or {}
-  payload.command, payload.key = command, connection.sharedKey or ""
+  local requestId = tostring(os.getComputerID and os.getComputerID() or "remote") .. ":" .. tostring(os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000)) .. ":" .. tostring(math.random(1000000))
+  payload.command, payload.key, payload.requestId = command, connection.sharedKey or "", requestId
   rednet.send(hostId, payload, channel)
   local sender, response = rednet.receive(channel, tonumber(connection.timeout) or 3)
   if sender ~= hostId or type(response) ~= "table" then hostCache[key] = nil; return nil, "No response" end
+  if response.requestId ~= nil and response.requestId ~= requestId then hostCache[key] = nil; return nil, "Mismatched response" end
   if not response.ok then return nil, response.error or "Rejected" end
   return response
 end]]
@@ -208,12 +210,14 @@ local fastRequest = [[local function request(command, extra)
   hostCache[key] = hostId
 
   local payload = extra or {}
-  payload.command, payload.key = command, connection.sharedKey or ""
+  local requestId = tostring(os.getComputerID and os.getComputerID() or "remote") .. ":" .. tostring(os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000)) .. ":" .. tostring(math.random(1000000))
+  payload.command, payload.key, payload.requestId = command, connection.sharedKey or "", requestId
   local timeout = tonumber(connection.timeout) or 3
   for attempt=1,2 do
     rednet.send(hostId, payload, channel)
     local sender, response = rednet.receive(channel, timeout)
     if sender == hostId and type(response) == "table" then
+      if response.requestId ~= nil and response.requestId ~= requestId then hostCache[key] = nil; return nil, "Mismatched response" end
       if not response.ok then return nil, response.error or "Rejected" end
       return response
     end

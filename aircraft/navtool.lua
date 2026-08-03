@@ -1516,6 +1516,12 @@ local function server(config, debug)
         local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
         local response = { ok = false, error = "unauthorized" }
         local responseSent = false
+        local function sendResponse(value)
+          value = type(value) == "table" and value or { ok = false, error = "invalid response" }
+          value.requestId = request.requestId
+          value.command = request.command
+          rednet.send(sender, value, channel)
+        end
         if valid then
         local handled, handledResponse = handleHardwareCommand(config, request)
         if not handled then handled, handledResponse = handleWaypointCommand(config, request) end
@@ -1529,6 +1535,30 @@ local function server(config, debug)
           response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
+        elseif request.command == "hardware-list" then
+          local description = Hardware and Hardware.describe(config) or nil
+          if description then
+            description.modes = description.modes or {}
+            description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+            response = { ok = true, hardware = description }
+          else
+            response = { ok = false, error = "hardware unavailable" }
+          end
+        elseif request.command == "hardware-assign" then
+          local okAssign, result = Hardware and Hardware.assign(config, request)
+          if okAssign then saveConfig(config); response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else response = { ok = false, error = result or "hardware unavailable" } end
+        elseif request.command == "hardware-unassign" then
+          local okUnassign, result = Hardware and Hardware.unassign(config, request)
+          if okUnassign then saveConfig(config); response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else response = { ok = false, error = result or "hardware unavailable" } end
+        elseif request.command == "hardware-test" then
+          local okTest, result = Hardware and Hardware.test(config, request.control, request.strength)
+          response = okTest and { ok = true } or { ok = false, error = result or "hardware unavailable" }
+        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
+          local okMode, result = Hardware and Hardware.setMode(config, request)
+          if okMode then saveConfig(config); response = { ok = true, hardware = result }
+          else response = { ok = false, error = result or "hardware unavailable" } end
         elseif request.command == "orientation-status" then
           config.orientation = type(config.orientation) == "table" and config.orientation or {}
           local state = snapshot(config, { library = false, schedule = false, gps = false })
@@ -1552,7 +1582,7 @@ local function server(config, debug)
         elseif request.command == "set-mode" then
           local mode = tostring(request.mode or "standby")
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
-            rednet.send(sender, { ok = true, mode = mode }, channel)
+            sendResponse({ ok = true, mode = mode })
             responseSent = true
             if mode ~= "navigate" then saveActiveSchedule(nil) end
             saveMode(mode)
@@ -1617,7 +1647,7 @@ local function server(config, debug)
           response = { ok = false, error = "unsupported command" }
         end
         end
-        if not responseSent then rednet.send(sender, response, channel) end
+        if not responseSent then sendResponse(response) end
         if pendingClearOutputs then
           pendingClearOutputs = false
           automationOutputController(nil, true)
@@ -1627,7 +1657,7 @@ local function server(config, debug)
       end)
       if not ok then
         printError("Request failed: " .. tostring(err))
-        pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err) }, channel)
+        pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err), requestId = request.requestId, command = request.command }, channel)
       end
     end
   end
