@@ -9,7 +9,193 @@ local ACTIVE_SCHEDULE_PATH = ROOT .. "/active_schedule.db"
 local args = { ... }
 local buttons = {}
 local ScheduleDirector = dofile(ROOT .. "/lib/flight_director.lua")
-local Hardware = fs.exists(ROOT .. "/hardware.lua") and dofile(ROOT .. "/hardware.lua") or nil
+
+local function loadHardware()
+  local paths = { ROOT .. "/hardware.lua", "/hardware.lua", "hardware.lua" }
+  for _, path in ipairs(paths) do
+    if fs.exists(path) then
+      local ok, module = pcall(dofile, path)
+      if ok and type(module) == "table" then return module, path end
+    end
+  end
+
+  local module = {}
+  local prefix = "@relay/"
+  local sides = { "top", "bottom", "left", "right", "front", "back" }
+  local controls = { "forward", "reverse", "left", "right", "up", "down" }
+  local native = {
+    setOutput = redstone.setOutput,
+    setAnalogOutput = redstone.setAnalogOutput,
+    setAnalogueOutput = redstone.setAnalogueOutput,
+    getOutput = redstone.getOutput,
+    getAnalogOutput = redstone.getAnalogOutput,
+    getAnalogueOutput = redstone.getAnalogueOutput,
+  }
+  local function validSide(side) for _, value in ipairs(sides) do if side == value then return true end end; return false end
+  local function validControl(control) for _, value in ipairs(controls) do if control == value then return true end end; return false end
+  local function hasType(name, wanted)
+    if type(peripheral.hasType) == "function" then local ok, value = pcall(peripheral.hasType, name, wanted); if ok and value then return true end end
+    local ok, value = pcall(peripheral.getType, name)
+    if not ok then return false end
+    if type(value) == "table" then for _, kind in ipairs(value) do if kind == wanted then return true end end; return false end
+    return value == wanted
+  end
+  local function isRelay(name)
+    for _, kind in ipairs({ "redstone_relay", "redstoneRelay", "redstone relay" }) do if hasType(name, kind) then return true end end
+    if type(peripheral.getMethods) ~= "function" then return false end
+    local ok, methods = pcall(peripheral.getMethods, name)
+    if not ok or type(methods) ~= "table" then return false end
+    for _, method in ipairs({ "setAnalogOutput", "setAnalogueOutput", "setOutput" }) do
+      for _, available in ipairs(methods) do if available == method then return true end end
+    end
+    return false
+  end
+  function module.encodeRelay(name, side) return prefix .. tostring(name) .. "/" .. tostring(side) end
+  function module.decodeSide(value)
+    value = tostring(value or "")
+    if value:sub(1, #prefix) ~= prefix then return { kind = "local", side = value } end
+    local body = value:sub(#prefix + 1)
+    local split = body:match("^.*()/")
+    if not split then return nil end
+    local name, side = body:sub(1, split - 1), body:sub(split + 1)
+    if name == "" or not validSide(side) then return nil end
+    return { kind = "relay", peripheral = name, side = side }
+  end
+  function module.relays()
+    local result = {}
+    for _, name in ipairs(peripheral.getNames()) do if isRelay(name) then result[#result + 1] = name end end
+    table.sort(result)
+    return result
+  end
+  local function callRelay(target, method, ...)
+    if not target or target.kind ~= "relay" then return false end
+    if not peripheral.isPresent(target.peripheral) or not isRelay(target.peripheral) then return false, "relay unavailable: " .. tostring(target.peripheral) end
+    local ok, result = pcall(peripheral.call, target.peripheral, method, target.side, ...)
+    if not ok then return false, result end
+    return true, result
+  end
+  function module.installRedstoneProxy()
+    if module._installed then return end
+    module._installed = true
+    redstone.setOutput = function(side, on)
+      local target = module.decodeSide(side)
+      if target and target.kind == "relay" then local ok, err = callRelay(target, "setOutput", on == true); if not ok then error(err, 2) end; return end
+      return native.setOutput(side, on)
+    end
+    redstone.setAnalogOutput = function(side, value)
+      local target = module.decodeSide(side)
+      if target and target.kind == "relay" then local ok, err = callRelay(target, "setAnalogOutput", value); if not ok then error(err, 2) end; return end
+      return native.setAnalogOutput(side, value)
+    end
+    redstone.setAnalogueOutput = redstone.setAnalogOutput
+    redstone.getOutput = function(side)
+      local target = module.decodeSide(side)
+      if target and target.kind == "relay" then local ok, value = callRelay(target, "getOutput"); if not ok then error(value, 2) end; return value end
+      return native.getOutput(side)
+    end
+    redstone.getAnalogOutput = function(side)
+      local target = module.decodeSide(side)
+      if target and target.kind == "relay" then local ok, value = callRelay(target, "getAnalogOutput"); if not ok then error(value, 2) end; return value end
+      return native.getAnalogOutput(side)
+    end
+    redstone.getAnalogueOutput = redstone.getAnalogOutput
+  end
+  local function outputTargets(output)
+    if type(output) ~= "table" then return {} end
+    if type(output.targets) == "table" then return output.targets end
+    if output.side then return { output } end
+    return {}
+  end
+  local function describeTarget(output)
+    local target = output and module.decodeSide(output.side) or nil
+    return {
+      kind = target and target.kind or "unassigned",
+      peripheral = target and target.peripheral or nil,
+      side = target and target.side or nil,
+      analog = not output or output.analog ~= false,
+      inverted = output and output.inverted == true or false,
+      maximum = output and tonumber(output.maximum) or nil,
+      available = target and (target.kind == "local" or peripheral.isPresent(target.peripheral)) or false,
+    }
+  end
+  local function configuredTarget(request, encodedSide)
+    return { side = encodedSide, analog = request.analog ~= false, inverted = request.inverted == true, maximum = math.max(0, math.min(15, tonumber(request.maximum) or 15)) }
+  end
+  local function clearTarget(output)
+    if type(output) == "table" and output.side then pcall(redstone.setAnalogOutput, output.side, 0); pcall(redstone.setOutput, output.side, false) end
+  end
+  function module.describe(config)
+    config.hardware = type(config.hardware) == "table" and config.hardware or {}
+    local assignments, airshipVertical = {}, nil
+    for _, control in ipairs(controls) do
+      local output = type(config.outputs) == "table" and config.outputs[control] or nil
+      local targets = outputTargets(output)
+      local described, allAvailable = {}, #targets > 0
+      for index, targetOutput in ipairs(targets) do described[index] = describeTarget(targetOutput); if described[index].available == false then allAvailable = false end end
+      local first = described[1] or describeTarget(nil)
+      assignments[control] = { control = control, kind = #described > 1 and "multi" or first.kind, peripheral = first.peripheral, side = first.side, analog = first.analog, inverted = first.inverted, maximum = first.maximum, available = allAvailable, count = #described, targets = described }
+    end
+    for _, control in ipairs({ "up", "down" }) do
+      local output = type(config.outputs) == "table" and config.outputs[control] or nil
+      local target = outputTargets(output)[1]
+      if type(target) == "table" and target.side then local ok, value = pcall(redstone.getAnalogOutput, target.side); if ok then airshipVertical = tonumber(value) or 0; break end end
+    end
+    return { relays = module.relays(), assignments = assignments, sides = sides, controls = controls, modes = { airship = config.hardware.airshipMode == true, airshipVertical = airshipVertical }, source = "embedded" }
+  end
+  function module.setMode(config, request)
+    config.hardware = type(config.hardware) == "table" and config.hardware or {}
+    if tostring(request.mode or "") ~= "airship" then return false, "invalid hardware mode" end
+    config.hardware.airshipMode = request.enabled == true
+    return true, module.describe(config)
+  end
+  function module.assign(config, request)
+    local control, kind, side = tostring(request.control or ""), tostring(request.kind or "local"), tostring(request.side or "")
+    if not validControl(control) then return false, "invalid control" end
+    if not validSide(side) then return false, "invalid side" end
+    config.outputs = type(config.outputs) == "table" and config.outputs or {}
+    local output = config.outputs[control] or {}
+    local encodedSide
+    if kind == "relay" then
+      local name = tostring(request.peripheral or "")
+      if name == "" or not peripheral.isPresent(name) or not isRelay(name) then return false, "redstone relay unavailable" end
+      encodedSide = module.encodeRelay(name, side)
+    elseif kind == "local" then encodedSide = side
+    else return false, "invalid device kind" end
+    local target = configuredTarget(request, encodedSide)
+    if request.add == true then local targets = {}; for _, existing in ipairs(outputTargets(output)) do targets[#targets + 1] = existing end; targets[#targets + 1] = target; config.outputs[control] = { targets = targets }
+    else config.outputs[control] = target end
+    return true, module.describe(config).assignments[control]
+  end
+  function module.unassign(config, request)
+    local control = tostring(request.control or "")
+    if not validControl(control) then return false, "invalid control" end
+    config.outputs = type(config.outputs) == "table" and config.outputs or {}
+    local targets = outputTargets(config.outputs[control])
+    if #targets == 0 then return false, "control is unassigned" end
+    local index = tonumber(request.index)
+    if request.all == true or not index then for _, target in ipairs(targets) do clearTarget(target) end; config.outputs[control] = nil
+    else
+      index = math.floor(index)
+      if index < 1 or index > #targets then return false, "invalid binding number" end
+      clearTarget(targets[index]); table.remove(targets, index)
+      if #targets == 0 then config.outputs[control] = nil elseif #targets == 1 then config.outputs[control] = targets[1] else config.outputs[control] = { targets = targets } end
+    end
+    return true, module.describe(config).assignments[control]
+  end
+  function module.test(config, control, strength)
+    local output = type(config.outputs) == "table" and config.outputs[tostring(control or "")] or nil
+    local targets = outputTargets(output)
+    if #targets == 0 then return false, "control is unassigned" end
+    local value = math.max(0, math.min(15, tonumber(strength) or 5))
+    for _, target in ipairs(targets) do local ok, err; if target.analog == false then ok, err = pcall(redstone.setOutput, target.side, value > 0) else ok, err = pcall(redstone.setAnalogOutput, target.side, value) end; if not ok then return false, err end end
+    sleep(0.25)
+    for _, target in ipairs(targets) do if target.analog == false then pcall(redstone.setOutput, target.side, false) else pcall(redstone.setAnalogOutput, target.side, 0) end end
+    return true
+  end
+  return module, "embedded"
+end
+
+local Hardware, HardwareSource = loadHardware()
 if Hardware then Hardware.installRedstoneProxy() end
 
 local lastGpsFix
@@ -1119,7 +1305,7 @@ snapshot = function(config, options)
   end
   return {
     version = VERSION,
-    capabilities = { hardware = Hardware ~= nil, schedules = true, waypoints = true },
+    capabilities = { hardware = Hardware ~= nil, hardwareSource = HardwareSource, schedules = true, waypoints = true },
     telemetry = position ~= nil or heading ~= nil,
     source = source,
     peripheral = legacyState and legacyState.peripheral,
