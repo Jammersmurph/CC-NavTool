@@ -54,7 +54,7 @@ local FILES = {
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/data")
 fs.makeDir(ROOT .. "/data/profiles")
-print("Updating NavRemote from develop...")
+print("Updating NavRemote from main...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local body, err = fetchText(BASE .. item.remote .. "?cache=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))

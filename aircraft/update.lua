@@ -53,7 +53,7 @@ end
 fs.makeDir(ROOT)
 fs.makeDir(ROOT .. "/lib")
 fs.makeDir(ROOT .. "/logs")
-print("Updating headless NavTool aircraft service from develop...")
+print("Updating headless NavTool aircraft service from main...")
 for _, item in ipairs(FILES) do
   write("  " .. item.remote .. " ... ")
   local ok, err = download(item.remote, item.localPath)

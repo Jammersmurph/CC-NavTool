@@ -1,5 +1,5 @@
--- CC-NavTool wireless pocket remote v0.5.6
-local VERSION = "0.5.6"
+-- CC-NavTool wireless pocket remote v0.5.7
+local VERSION = "0.5.7"
 local CONFIG_PATH = "/navtool/remote.lua"
 local DEFAULT = {
   channel = "cc-navtool",
