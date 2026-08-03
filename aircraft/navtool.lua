@@ -1119,6 +1119,7 @@ snapshot = function(config, options)
   end
   return {
     version = VERSION,
+    capabilities = { hardware = Hardware ~= nil, schedules = true, waypoints = true },
     telemetry = position ~= nil or heading ~= nil,
     source = source,
     peripheral = legacyState and legacyState.peripheral,
