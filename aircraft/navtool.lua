@@ -1,4 +1,4 @@
-local VERSION = "0.5.7"
+local VERSION = "0.5.8"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -1119,6 +1119,7 @@ snapshot = function(config, options)
   end
   return {
     version = VERSION,
+    capabilities = { hardware = Hardware ~= nil, schedules = true, waypoints = true },
     telemetry = position ~= nil or heading ~= nil,
     source = source,
     peripheral = legacyState and legacyState.peripheral,
