@@ -27,6 +27,19 @@ local function hasType(name, wanted)
   return value == wanted
 end
 
+local function isRelay(name)
+  for _, kind in ipairs({ "redstone_relay", "redstoneRelay", "redstone relay" }) do
+    if hasType(name, kind) then return true end
+  end
+  if type(peripheral.getMethods) ~= "function" then return false end
+  local ok, methods = pcall(peripheral.getMethods, name)
+  if not ok or type(methods) ~= "table" then return false end
+  for _, method in ipairs({ "setAnalogOutput", "setAnalogueOutput", "setOutput" }) do
+    for _, available in ipairs(methods) do if available == method then return true end end
+  end
+  return false
+end
+
 local function validSide(side)
   for _, value in ipairs(SIDES) do if side == value then return true end end
   return false
@@ -55,7 +68,7 @@ end
 function Hardware.relays()
   local result = {}
   for _, name in ipairs(peripheral.getNames()) do
-    if hasType(name, "redstone_relay") then result[#result + 1] = name end
+    if isRelay(name) then result[#result + 1] = name end
   end
   table.sort(result)
   return result
@@ -63,7 +76,7 @@ end
 
 local function callRelay(target, method, ...)
   if not target or target.kind ~= "relay" then return false end
-  if not peripheral.isPresent(target.peripheral) or not hasType(target.peripheral, "redstone_relay") then
+  if not peripheral.isPresent(target.peripheral) or not isRelay(target.peripheral) then
     return false, "relay unavailable: " .. tostring(target.peripheral)
   end
   local ok, result = pcall(peripheral.call, target.peripheral, method, target.side, ...)
@@ -214,7 +227,7 @@ function Hardware.assign(config, request)
   local encodedSide
   if kind == "relay" then
     local name = tostring(request.peripheral or "")
-    if name == "" or not peripheral.isPresent(name) or not hasType(name, "redstone_relay") then
+    if name == "" or not peripheral.isPresent(name) or not isRelay(name) then
       return false, "redstone relay unavailable"
     end
     encodedSide = Hardware.encodeRelay(name, side)
