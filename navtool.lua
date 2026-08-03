@@ -3,8 +3,16 @@ local VERSION = "0.5.9-nightly"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local STATE_PATH = ROOT .. "/state.lua"
-local REPO_RAW = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/"
+local REPO_RAW = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/"
 local args = { ... }
+
+if fs.exists(ROOT .. "/runtime.lua") then
+  local command = type(args[1]) == "string" and args[1]:lower() or nil
+  if command ~= "legacy" then
+    return shell.run(ROOT .. "/runtime.lua", table.unpack(args))
+  end
+  table.remove(args, 1)
+end
 
 local function ensureDirectory(path) if not fs.exists(path) then fs.makeDir(path) end end
 local function loadConfig()

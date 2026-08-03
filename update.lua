@@ -1,6 +1,6 @@
 -- CC-NavTool updater
 local ROOT = "/navtool"
-local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/main/"
+local BASE = "https://raw.githubusercontent.com/Jammersmurph/CC-NavTool/develop/"
 local FILES = {
   { remote = "navtool.lua", localPath = ROOT .. "/navtool.lua" },
   { remote = "pocket.lua", localPath = ROOT .. "/pocket.lua" },
