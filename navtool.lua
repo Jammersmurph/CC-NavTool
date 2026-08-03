@@ -1,5 +1,5 @@
--- CC-NavTool v0.5.7
-local VERSION = "0.5.7"
+-- CC-NavTool v0.5.7-nightly
+local VERSION = "0.5.7-nightly"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local STATE_PATH = ROOT .. "/state.lua"
