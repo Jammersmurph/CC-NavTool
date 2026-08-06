@@ -56,6 +56,7 @@ return {
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
     cruiseAltitude = 310,
+    cruiseAltitudeTolerance = 1,
     cruiseAltitudeMinimum = 300,
     cruiseAltitudeMaximum = 500,
     verticalTransitionRadius = 3,
