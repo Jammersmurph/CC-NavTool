@@ -248,6 +248,10 @@ local function controlTick()
             local yaw = (tonumber(fc.minimumYawOutput) or 1) / maximum
             splitAxis(headingError > 0 and yaw or -yaw, "left", "right", commands)
           end
+          if not inPositioningZone and guidance.horizontalDistance and (guidance.horizontalDistance > (guidance.brakeRadius or 75)) and headingAlignment and headingAlignment > 0.5 and (guidance.desiredSpeed or 0) > 0 then
+            local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+            thrust = math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum
+          end
         end
         if guidance.shouldBrake then
           speedPID:reset()
