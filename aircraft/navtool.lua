@@ -209,8 +209,8 @@ local function loadConfig()
     config._migrated = true
   end
   config.flightControl = type(config.flightControl) == "table" and config.flightControl or {}
-  if config.flightControl.minimumThrustAlignment == nil or (tonumber(config.flightControl.minimumThrustAlignment) or 0) >= 0.985 then
-    config.flightControl.minimumThrustAlignment = 0.94
+  if config.flightControl.minimumThrustAlignment == nil or (tonumber(config.flightControl.minimumThrustAlignment) or 0) > 0.9 then
+    config.flightControl.minimumThrustAlignment = 0.9
     config._migrated = true
   end
   if type(config.flightControl) == "table" and config.flightControl.minimumYawOutput == nil then
@@ -245,8 +245,8 @@ local function loadConfig()
     config.navigation.headingTolerance = 4
     config._migrated = true
   end
-  if type(config.navigation) == "table" and config.navigation.cruiseHeadingTolerance == nil then
-    config.navigation.cruiseHeadingTolerance = 12
+  if type(config.navigation) == "table" and (tonumber(config.navigation.cruiseHeadingTolerance) or 0) < 25 then
+    config.navigation.cruiseHeadingTolerance = 25
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
