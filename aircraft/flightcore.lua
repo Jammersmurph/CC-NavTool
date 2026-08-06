@@ -185,6 +185,7 @@ local function controlTick()
         airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
         local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
+          or (guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode)
         local finalHeadingReached = true
         if guidance.finalHeading then
           local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
