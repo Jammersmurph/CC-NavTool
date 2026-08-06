@@ -1025,6 +1025,17 @@ end
 
 local gpsFix
 local snapshot
+local lastAutomationDebug
+
+local function automationSummary(notes)
+  if type(notes) ~= "table" then return nil end
+  for _, pattern in ipairs({ "forward held", "align brake", "final brake", "final capture", "cruise", "yaw", "heading" }) do
+    for _, note in ipairs(notes) do
+      if tostring(note):find(pattern, 1, true) then return tostring(note) end
+    end
+  end
+  return notes[1] and tostring(notes[1]) or nil
+end
 
 local function promptTarget()
   term.clear()
@@ -1343,6 +1354,7 @@ snapshot = function(config, options)
     scheduleNames = scheduleNames,
     activeSchedule = activeSchedule,
     scheduleArrival = scheduleArrival,
+    automation = lastAutomationDebug,
     mode = mode,
   }
 end
@@ -1959,6 +1971,8 @@ serverAutomationTick = function(config, outputController)
       local requested, notes = automationOutputs(config, state)
       local applied = outputController and outputController(requested, true) or applyOutputs(config, requested)
       notes[#notes + 1] = "schedule paused"
+      lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes) }
+      state.automation = lastAutomationDebug
       return state, requested, applied, notes
     end
     local schedules = loadSchedules()
@@ -1984,6 +1998,8 @@ serverAutomationTick = function(config, outputController)
   end
   local requested, notes = automationOutputs(config, state)
   local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
+  lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes) }
+  state.automation = lastAutomationDebug
   return state, requested, applied, notes
 end
 

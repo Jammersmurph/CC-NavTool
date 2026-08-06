@@ -361,6 +361,10 @@ local newDashboard = [[local function dashboard(data)
   end
   writeAt(3,22,"Monitor",colors.cyan)
   writeAt(15,22,status.peripheral or status.sublevel or "none")
+  if status.automation and type(status.automation.notes)=="table" then
+    writeAt(3,23,"Control",colors.cyan)
+    writeAt(15,23,tostring(status.automation.summary or status.automation.notes[1] or ""):sub(1,32),colors.yellow)
+  end
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
   footer(help)
