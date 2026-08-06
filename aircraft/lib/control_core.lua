@@ -238,6 +238,19 @@ function Control:outputs(state)
     elseif guidance.finalCapture and finalHeadingReached then
       self.heading:reset()
       commands.left, commands.right = 0, 0
+    elseif headingError then
+      local yawTolerance = math.rad(math.max(0, tonumber(self.config.navigation and self.config.navigation.headingTolerance) or 4))
+      if guidance.airshipMode then
+        yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber(self.config.navigation and self.config.navigation.airshipHeadingTolerance) or 15))
+      end
+      if math.abs(headingError) <= yawTolerance then
+        self.heading:reset()
+        commands.left, commands.right = 0, 0
+        alignment = 1
+        notes[#notes + 1] = "yaw within cruise tolerance"
+      else
+        self:setAxis(commands, self.heading:update(headingError, dt), "left", "right", "heading", false)
+      end
     else
       self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
     end
