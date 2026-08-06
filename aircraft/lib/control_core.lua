@@ -222,6 +222,15 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
+    if alignment and alignment < -0.95 and guidance.desiredHeading then
+      local reversedHeading = { x = -guidance.desiredHeading.x, y = 0, z = -guidance.desiredHeading.z }
+      local reversedError, reversedAlignment = Director.headingError(state.heading, reversedHeading)
+      if reversedAlignment and reversedAlignment > 0.5 then
+        headingError, alignment = reversedError, reversedAlignment
+        guidance.desiredHeading = reversedHeading
+        notes[#notes + 1] = "target heading reversed for Sable frame"
+      end
+    end
     local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
       or (guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode)
     local finalHeadingReached = true
