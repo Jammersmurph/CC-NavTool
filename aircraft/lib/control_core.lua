@@ -296,7 +296,12 @@ function Control:outputs(state)
         else commands.right = math.min(maximum(self.config, "right"), yawOutput) end
         notes[#notes + 1] = "minimum yaw while aligning"
       end
-      if currentHorizontalSpeed > 0.25 then
+      local allowCruiseCreep = not inPositioningZone and guidance.horizontalDistance and (guidance.horizontalDistance > (guidance.brakeRadius or 75)) and alignment and alignment > 0.5 and (guidance.desiredSpeed or 0) > 0
+      if allowCruiseCreep then
+        local creep = math.max(1, math.min(15, tonumber(self.fc.minimumForwardOutput) or 2)) / math.max(1, maximum(self.config, "forward"))
+        self:setAxis(commands, creep, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("cruise creep align %.2f", alignment or 0)
+      elseif currentHorizontalSpeed > 0.25 then
         local brake = math.min(1, currentHorizontalSpeed / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12))
         self:setAxis(commands, inPositioningZone and -brake or 0, "forward", "reverse", "speed", false)
         notes[#notes + 1] = string.format("align brake %.2f align %.2f", currentHorizontalSpeed, alignment or 0)
