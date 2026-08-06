@@ -284,7 +284,7 @@ function Control:outputs(state)
       end
     end
     local acquiringCruiseAltitude = guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady
-    if not acquiringCruiseAltitude and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 15) then
+    if not acquiringCruiseAltitude and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 10) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
       local upLimit = tonumber(guidance.finalVerticalUpOutputMaximum) or math.min(15, limit + 1)
       commands.up = math.min(commands.up or 0, upLimit)
