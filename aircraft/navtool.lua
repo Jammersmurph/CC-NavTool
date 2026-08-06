@@ -229,6 +229,10 @@ local function loadConfig()
     config.navigation.cruiseAltitude = 310
     config._migrated = true
   end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.cruiseAltitudeMinimum) or 0) < 310 then
+    config.navigation.cruiseAltitudeMinimum = 310
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and config.navigation.cruiseAltitudeTolerance == nil then
     config.navigation.cruiseAltitudeTolerance = 1
     config._migrated = true
