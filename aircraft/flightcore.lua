@@ -196,6 +196,17 @@ local function controlTick()
           headingPID:reset()
         elseif guidance.finalCapture and finalHeadingReached then
           headingPID:reset()
+        elseif headingError then
+          local yawTolerance = math.rad(math.max(0, tonumber((config.navigation or {}).headingTolerance) or 4))
+          if guidance.airshipMode then
+            yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber((config.navigation or {}).airshipHeadingTolerance) or 15))
+          end
+          if math.abs(headingError) <= yawTolerance then
+            headingPID:reset()
+          else
+            local yaw = headingPID:update(headingError, dt)
+            splitAxis(yaw, "left", "right", commands)
+          end
         else
           local yaw = headingPID:update(headingError or 0, dt)
           splitAxis(yaw, "left", "right", commands)
