@@ -336,6 +336,7 @@ function Control:outputs(state)
     notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
     notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
     notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)
+    notes.debug = { headingError = math.deg(headingError or 0), alignment = alignment, desiredHeading = guidance.desiredHeading, xError = guidance.xError, zError = guidance.zError }
     return commands, notes, true
   end
 
