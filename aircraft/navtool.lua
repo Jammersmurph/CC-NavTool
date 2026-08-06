@@ -229,6 +229,10 @@ local function loadConfig()
     config.navigation.cruiseAltitude = 310
     config._migrated = true
   end
+  if type(config.navigation) == "table" and config.navigation.cruiseAltitudeTolerance == nil then
+    config.navigation.cruiseAltitudeTolerance = 1
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and tonumber(config.navigation.settleVelocity) == 0.05 then
     config.navigation.settleVelocity = 0.5
     config._migrated = true
@@ -610,10 +614,11 @@ local function makeOutputController(config)
   local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
   local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
   local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  local pulseAutomation = automation.pulseAutomationOutputs ~= false
   if type(config.flightControl) == "table" and config.flightControl.enabled ~= false then
     holdAfter, pulseReleaseGrace, holdReleaseGrace = 0, 0, 0
+    pulseAutomation = false
   end
-  local pulseAutomation = automation.pulseAutomationOutputs ~= false
   local outputPulsePeriod = math.max(0.05, tonumber(automation.outputPulsePeriod) or 0.4)
   local outputPulseWidth = math.max(0.05, math.min(outputPulsePeriod, tonumber(automation.outputPulseWidth) or 0.3))
   return function(requested, forceClear)
