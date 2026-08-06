@@ -39,6 +39,7 @@ return {
     brakeRadius = 75,
     finalOutputRadius = 10,
     headingTolerance = 4,
+    cruiseHeadingTolerance = 12,
     airshipArrivalRadius = 6,
     airshipVerticalTolerance = 8,
     airshipHeadingTolerance = 15,

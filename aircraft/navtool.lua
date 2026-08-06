@@ -245,6 +245,10 @@ local function loadConfig()
     config.navigation.headingTolerance = 4
     config._migrated = true
   end
+  if type(config.navigation) == "table" and config.navigation.cruiseHeadingTolerance == nil then
+    config.navigation.cruiseHeadingTolerance = 12
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
     config.navigation.finalOutputMaximum = 2
     config._migrated = true
