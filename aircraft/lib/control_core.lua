@@ -240,9 +240,10 @@ function Control:outputs(state)
       self.heading:reset()
       commands.left, commands.right = 0, 0
     elseif headingError then
-      local yawTolerance = math.rad(math.max(0, tonumber(self.config.navigation and self.config.navigation.headingTolerance) or 4))
+      local navigation = self.config.navigation or {}
+      local yawTolerance = math.rad(math.max(0, tonumber(navigation.cruiseHeadingTolerance) or tonumber(navigation.headingTolerance) or 4))
       if guidance.airshipMode then
-        yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber(self.config.navigation and self.config.navigation.airshipHeadingTolerance) or 15))
+        yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber(navigation.airshipHeadingTolerance) or 15))
       end
       if math.abs(headingError) <= yawTolerance then
         self.heading:reset()
