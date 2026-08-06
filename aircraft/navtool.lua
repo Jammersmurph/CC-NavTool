@@ -1985,7 +1985,7 @@ serverAutomationTick = function(config, outputController)
       local requested, notes = automationOutputs(config, state)
       local applied = outputController and outputController(requested, true) or applyOutputs(config, requested)
       notes[#notes + 1] = "schedule paused"
-      lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes) }
+      lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes), debug = type(notes) == "table" and notes.debug or nil }
       state.automation = lastAutomationDebug
       return state, requested, applied, notes
     end
@@ -2012,7 +2012,7 @@ serverAutomationTick = function(config, outputController)
   end
   local requested, notes = automationOutputs(config, state)
   local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
-  lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes) }
+  lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes), debug = type(notes) == "table" and notes.debug or nil }
   state.automation = lastAutomationDebug
   return state, requested, applied, notes
 end

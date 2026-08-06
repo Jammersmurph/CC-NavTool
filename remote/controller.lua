@@ -718,6 +718,10 @@ local function dashboard(data)
   if status.automation and type(status.automation.notes)=="table" then
     writeAt(3,22,"Control",colors.cyan)
     writeAt(15,22,tostring(status.automation.summary or status.automation.notes[1] or ""):sub(1,32),colors.yellow)
+    if type(status.automation.debug)=="table" then
+      writeAt(3,23,"Head Err",colors.cyan)
+      writeAt(15,23,string.format("%.1f align %.2f",tonumber(status.automation.debug.headingError) or 0,tonumber(status.automation.debug.alignment) or 0),colors.yellow)
+    end
   end
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
