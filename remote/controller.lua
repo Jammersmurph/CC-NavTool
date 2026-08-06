@@ -715,6 +715,10 @@ local function dashboard(data)
     writeAt(3,21,"Monitor",colors.cyan)
     writeAt(15,21,status.peripheral or status.sublevel or "none")
   end
+  if status.automation and type(status.automation.notes)=="table" then
+    writeAt(3,22,"Control",colors.cyan)
+    writeAt(15,22,tostring(status.automation.summary or status.automation.notes[1] or ""):sub(1,32),colors.yellow)
+  end
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
   footer(help)
