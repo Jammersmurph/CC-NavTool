@@ -273,7 +273,7 @@ function Control:outputs(state)
         notes[#notes + 1] = "airship cruise: waiting for vertical max"
       end
     end
-    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+    if guidance.altitudePhase ~= "horizontal-cruise" and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
       local upLimit = tonumber(guidance.finalVerticalUpOutputMaximum) or math.min(15, limit + 1)
       commands.up = math.min(commands.up or 0, upLimit)
