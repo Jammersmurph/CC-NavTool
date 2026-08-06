@@ -1004,6 +1004,20 @@ local function distance(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function liveAlignment(position, target, heading)
+  if type(position) ~= "table" or type(target) ~= "table" or type(heading) ~= "table" then return nil end
+  local dx = (tonumber(target.x) or 0) - (tonumber(position.x) or 0)
+  local dz = (tonumber(target.z) or 0) - (tonumber(position.z) or 0)
+  local length = math.sqrt(dx * dx + dz * dz)
+  if length < 0.0001 then return nil end
+  local desired = { x = dx / length, y = 0, z = dz / length }
+  local current = normalizeHorizontal(heading)
+  if not current then return nil end
+  local dot = math.max(-1, math.min(1, current.x * desired.x + current.z * desired.z))
+  local cross = current.z * desired.x - current.x * desired.z
+  return { alignment = dot, headingError = math.deg(math.atan2(cross, dot)), desiredHeading = desired }
+end
+
 local function scheduleStopArrival(config, state, stop)
   stop = withoutFinalHeading(stop)
   local position = state and state.position
@@ -1240,6 +1254,7 @@ end
 local function sublevelSnapshot(config)
   if not sublevelAvailable(config) then return nil end
   local pose = callSublevel("getLogicalPose") or callSublevel("getLastPose")
+  local liveNavigation = liveAlignment(position, target, heading)
   return {
     available = true,
     pose = pose,
@@ -1361,6 +1376,7 @@ snapshot = function(config, options)
     subLevelName = (subState and subState.subLevelName) or (avionicsState and avionicsState.subLevelName),
     gpsError = gpsErr,
     target = target,
+    liveNavigation = liveNavigation,
     distanceToTarget = distance(position, target),
     waypoints = waypoints,
     waypointNames = names,
