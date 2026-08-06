@@ -277,12 +277,6 @@ local function loadConfig()
     config.navigation.finalVerticalUpOutputMaximum = 3
     config._migrated = true
   end
-  config.orientation = type(config.orientation) == "table" and config.orientation or {}
-  local forward = type(config.orientation.forward) == "table" and config.orientation.forward or nil
-  if not forward or ((tonumber(forward.x) or 0) == 0 and (tonumber(forward.y) or 0) == 0 and (tonumber(forward.z) or 0) == 1) then
-    config.orientation.forward = { x = 0, y = 0, z = -1 }
-    config._migrated = true
-  end
   return config
 end
 
@@ -813,7 +807,7 @@ local function headingFromPose(config, pose)
   local q = extractQuaternion(pose)
   if q then
     local orientation = type(config.orientation) == "table" and config.orientation or {}
-    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = -1 }
+    local localForward = extractVector(orientation.forward) or { x = 0, y = 0, z = 1 }
     localForward = rotateLocalYaw(localForward, orientation.yawOffset)
     local rotated = normalizeHorizontal(rotateByQuaternion(localForward, q))
     if rotated then return rotated, "pose-quaternion" end
