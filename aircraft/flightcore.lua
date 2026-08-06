@@ -223,7 +223,8 @@ local function controlTick()
         if airshipCruiseGate then
           guidance.cruiseAltitudeReady = math.max(commands.up or 0, commands.down or 0) >= 1
         end
-        if guidance.altitudePhase ~= "horizontal-cruise" and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+        local acquiringCruiseAltitude = guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady
+        if not acquiringCruiseAltitude and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
           local upLimit = math.max(limit, math.min(15, tonumber(guidance.finalVerticalUpOutputMaximum) or 3))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
