@@ -63,7 +63,7 @@ local function stagedTarget(state, target, config)
   local cruiseAltitudeMinimum = tonumber(navigation.cruiseAltitudeMinimum) or 300
   local cruiseAltitudeMaximum = tonumber(navigation.cruiseAltitudeMaximum) or 500
   local cruiseAltitudeTolerance = math.max(0, tonumber(navigation.cruiseAltitudeTolerance) or 1)
-  local cruiseAltitudeReady = not airshipMode and math.abs(position.y - cruiseAltitude) <= cruiseAltitudeTolerance
+  local cruiseAltitudeReady = not airshipMode and position.y >= (cruiseAltitude - cruiseAltitudeTolerance)
   local horizontallyLocked = horizontalDistance <= arrivalRadius
     and driftSpeed <= settleVelocity
 
