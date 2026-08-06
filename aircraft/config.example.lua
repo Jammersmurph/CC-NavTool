@@ -79,7 +79,7 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.985,
+    minimumThrustAlignment = 0.94,
     minimumYawOutput = 1,
     minimumForwardOutput = 2,
     hoverVelocityGain = 0.18,

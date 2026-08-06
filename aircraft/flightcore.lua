@@ -237,7 +237,7 @@ local function controlTick()
         if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
         local inPositioningZone = guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.985) then
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.94) then
           thrust = 0
           speedPID:reset()
           if headingError and math.abs(headingError) > math.rad(0.5) and (commands.left or 0) == 0 and (commands.right or 0) == 0 then
@@ -254,7 +254,7 @@ local function controlTick()
           speedPID:reset()
         else
           if not inPositioningZone then thrust = math.max(0, thrust) end
-          if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.985) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
+          if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.94) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
             local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
             thrust = math.max(thrust, math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum)
           end
