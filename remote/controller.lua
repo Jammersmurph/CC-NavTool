@@ -723,6 +723,10 @@ local function dashboard(data)
       writeAt(15,23,string.format("%.1f align %.2f",tonumber(status.automation.debug.headingError) or 0,tonumber(status.automation.debug.alignment) or 0),colors.yellow)
     end
   end
+  if type(status.liveNavigation)=="table" then
+    writeAt(3,24,"Live Align",colors.cyan)
+    writeAt(15,24,string.format("%.1f align %.2f",tonumber(status.liveNavigation.headingError) or 0,tonumber(status.liveNavigation.alignment) or 0),colors.lime)
+  end
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
   footer(help)
