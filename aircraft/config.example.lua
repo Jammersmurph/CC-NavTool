@@ -39,7 +39,7 @@ return {
     brakeRadius = 75,
     finalOutputRadius = 10,
     headingTolerance = 4,
-    cruiseHeadingTolerance = 12,
+    cruiseHeadingTolerance = 25,
     airshipArrivalRadius = 6,
     airshipVerticalTolerance = 8,
     airshipHeadingTolerance = 15,
@@ -80,7 +80,7 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.94,
+    minimumThrustAlignment = 0.9,
     minimumYawOutput = 1,
     minimumForwardOutput = 2,
     hoverVelocityGain = 0.18,
