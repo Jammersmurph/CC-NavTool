@@ -205,7 +205,7 @@ function Director.solve(state, target, config)
   local brakeRadius = math.max(arrivalRadius, tonumber(navigation.brakeRadius) or 75)
   local finalOutputRadius = math.max(arrivalRadius, tonumber(navigation.finalOutputRadius) or 10)
   local finalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalOutputMaximum) or 2))
-  local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 15)
+  local finalVerticalRadius = math.max(0, tonumber(navigation.finalVerticalRadius) or 10)
   local finalVerticalOutputMaximum = math.max(1, math.min(15, tonumber(navigation.finalVerticalOutputMaximum) or 2))
   local finalVerticalUpOutputMaximum = math.max(finalVerticalOutputMaximum, math.min(15, tonumber(navigation.finalVerticalUpOutputMaximum) or 3))
 
