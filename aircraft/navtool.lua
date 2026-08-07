@@ -1,4 +1,4 @@
-local VERSION = "0.5.9"
+local VERSION = "0.5.9-nightly"
 local ROOT = "/navtool"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local TARGET_PATH = ROOT .. "/target.db"
@@ -208,8 +208,9 @@ local function loadConfig()
     config.network.protocol = nil
     config._migrated = true
   end
-  if type(config.flightControl) == "table" and (tonumber(config.flightControl.minimumThrustAlignment) or 0) < 0.985 then
-    config.flightControl.minimumThrustAlignment = 0.985
+  config.flightControl = type(config.flightControl) == "table" and config.flightControl or {}
+  if config.flightControl.minimumThrustAlignment == nil or (tonumber(config.flightControl.minimumThrustAlignment) or 0) > 0.9 then
+    config.flightControl.minimumThrustAlignment = 0.9
     config._migrated = true
   end
   if type(config.flightControl) == "table" and config.flightControl.minimumYawOutput == nil then
@@ -228,6 +229,14 @@ local function loadConfig()
     config.navigation.cruiseAltitude = 310
     config._migrated = true
   end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.cruiseAltitudeMinimum) or 0) < 310 then
+    config.navigation.cruiseAltitudeMinimum = 310
+    config._migrated = true
+  end
+  if type(config.navigation) == "table" and config.navigation.cruiseAltitudeTolerance == nil then
+    config.navigation.cruiseAltitudeTolerance = 1
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and tonumber(config.navigation.settleVelocity) == 0.05 then
     config.navigation.settleVelocity = 0.5
     config._migrated = true
@@ -244,6 +253,10 @@ local function loadConfig()
     config.navigation.headingTolerance = 4
     config._migrated = true
   end
+  if type(config.navigation) == "table" and (tonumber(config.navigation.cruiseHeadingTolerance) or 0) < 25 then
+    config.navigation.cruiseHeadingTolerance = 25
+    config._migrated = true
+  end
   if type(config.navigation) == "table" and config.navigation.finalOutputMaximum == nil then
     config.navigation.finalOutputMaximum = 2
     config._migrated = true
@@ -252,7 +265,7 @@ local function loadConfig()
     config.navigation.finalOutputRadius = 10
     config._migrated = true
   end
-  if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 10) then
+  if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 10 or tonumber(config.navigation.finalVerticalRadius) == 15) then
     config.navigation.finalVerticalRadius = 25
     config._migrated = true
   end
@@ -605,10 +618,11 @@ local function makeOutputController(config)
   local holdAfter = tonumber(automation.outputHoldAfter) or 0.6
   local pulseReleaseGrace = tonumber(automation.outputPulseReleaseGrace) or 0.25
   local holdReleaseGrace = tonumber(automation.outputHoldReleaseGrace) or 1.0
+  local pulseAutomation = automation.pulseAutomationOutputs ~= false
   if type(config.flightControl) == "table" and config.flightControl.enabled ~= false then
     holdAfter, pulseReleaseGrace, holdReleaseGrace = 0, 0, 0
+    pulseAutomation = false
   end
-  local pulseAutomation = automation.pulseAutomationOutputs ~= false
   local outputPulsePeriod = math.max(0.05, tonumber(automation.outputPulsePeriod) or 0.4)
   local outputPulseWidth = math.max(0.05, math.min(outputPulsePeriod, tonumber(automation.outputPulseWidth) or 0.3))
   return function(requested, forceClear)
@@ -990,6 +1004,20 @@ local function distance(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function liveAlignment(position, target, heading)
+  if type(position) ~= "table" or type(target) ~= "table" or type(heading) ~= "table" then return nil end
+  local dx = (tonumber(target.x) or 0) - (tonumber(position.x) or 0)
+  local dz = (tonumber(target.z) or 0) - (tonumber(position.z) or 0)
+  local length = math.sqrt(dx * dx + dz * dz)
+  if length < 0.0001 then return nil end
+  local desired = { x = dx / length, y = 0, z = dz / length }
+  local current = normalizeHorizontal(heading)
+  if not current then return nil end
+  local dot = math.max(-1, math.min(1, current.x * desired.x + current.z * desired.z))
+  local cross = current.z * desired.x - current.x * desired.z
+  return { alignment = dot, headingError = math.deg(math.atan2(cross, dot)), desiredHeading = desired }
+end
+
 local function scheduleStopArrival(config, state, stop)
   stop = withoutFinalHeading(stop)
   local position = state and state.position
@@ -1025,6 +1053,17 @@ end
 
 local gpsFix
 local snapshot
+local lastAutomationDebug
+
+local function automationSummary(notes)
+  if type(notes) ~= "table" then return nil end
+  for _, pattern in ipairs({ "forward held", "align brake", "final brake", "final capture", "cruise", "yaw", "heading" }) do
+    for _, note in ipairs(notes) do
+      if tostring(note):find(pattern, 1, true) then return tostring(note) end
+    end
+  end
+  return notes[1] and tostring(notes[1]) or nil
+end
 
 local function promptTarget()
   term.clear()
@@ -1215,6 +1254,7 @@ end
 local function sublevelSnapshot(config)
   if not sublevelAvailable(config) then return nil end
   local pose = callSublevel("getLogicalPose") or callSublevel("getLastPose")
+  local liveNavigation = liveAlignment(position, target, heading)
   return {
     available = true,
     pose = pose,
@@ -1336,6 +1376,7 @@ snapshot = function(config, options)
     subLevelName = (subState and subState.subLevelName) or (avionicsState and avionicsState.subLevelName),
     gpsError = gpsErr,
     target = target,
+    liveNavigation = liveNavigation,
     distanceToTarget = distance(position, target),
     waypoints = waypoints,
     waypointNames = names,
@@ -1343,6 +1384,7 @@ snapshot = function(config, options)
     scheduleNames = scheduleNames,
     activeSchedule = activeSchedule,
     scheduleArrival = scheduleArrival,
+    automation = lastAutomationDebug,
     mode = mode,
   }
 end
@@ -1516,6 +1558,12 @@ local function server(config, debug)
         local valid = (config.network.sharedKey or "") == "" or request.key == config.network.sharedKey
         local response = { ok = false, error = "unauthorized" }
         local responseSent = false
+        local function sendResponse(value)
+          value = type(value) == "table" and value or { ok = false, error = "invalid response" }
+          value.requestId = request.requestId
+          value.command = request.command
+          rednet.send(sender, value, channel)
+        end
         if valid then
         local handled, handledResponse = handleHardwareCommand(config, request)
         if not handled then handled, handledResponse = handleWaypointCommand(config, request) end
@@ -1529,6 +1577,30 @@ local function server(config, debug)
           response = { ok = true, data = snapshot(config, { library = false, gps = false }) }
         elseif request.command == "status" then
           response = { ok = true, data = snapshot(config) }
+        elseif request.command == "hardware-list" then
+          local description = Hardware and Hardware.describe(config) or nil
+          if description then
+            description.modes = description.modes or {}
+            description.modes.airship = type(config.hardware) == "table" and config.hardware.airshipMode == true
+            response = { ok = true, hardware = description }
+          else
+            response = { ok = false, error = "hardware unavailable" }
+          end
+        elseif request.command == "hardware-assign" then
+          local okAssign, result = Hardware and Hardware.assign(config, request)
+          if okAssign then saveConfig(config); response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else response = { ok = false, error = result or "hardware unavailable" } end
+        elseif request.command == "hardware-unassign" then
+          local okUnassign, result = Hardware and Hardware.unassign(config, request)
+          if okUnassign then saveConfig(config); response = { ok = true, assignment = result, hardware = Hardware.describe(config) }
+          else response = { ok = false, error = result or "hardware unavailable" } end
+        elseif request.command == "hardware-test" then
+          local okTest, result = Hardware and Hardware.test(config, request.control, request.strength)
+          response = okTest and { ok = true } or { ok = false, error = result or "hardware unavailable" }
+        elseif request.command == "hardware-mode" or request.command == "hardware-airship" then
+          local okMode, result = Hardware and Hardware.setMode(config, request)
+          if okMode then saveConfig(config); response = { ok = true, hardware = result }
+          else response = { ok = false, error = result or "hardware unavailable" } end
         elseif request.command == "orientation-status" then
           config.orientation = type(config.orientation) == "table" and config.orientation or {}
           local state = snapshot(config, { library = false, schedule = false, gps = false })
@@ -1552,7 +1624,7 @@ local function server(config, debug)
         elseif request.command == "set-mode" then
           local mode = tostring(request.mode or "standby")
           if mode == "standby" or mode == "navigate" or mode == "hover" or mode == "return-home" then
-            rednet.send(sender, { ok = true, mode = mode }, channel)
+            sendResponse({ ok = true, mode = mode })
             responseSent = true
             if mode ~= "navigate" then saveActiveSchedule(nil) end
             saveMode(mode)
@@ -1617,7 +1689,7 @@ local function server(config, debug)
           response = { ok = false, error = "unsupported command" }
         end
         end
-        if not responseSent then rednet.send(sender, response, channel) end
+        if not responseSent then sendResponse(response) end
         if pendingClearOutputs then
           pendingClearOutputs = false
           automationOutputController(nil, true)
@@ -1627,7 +1699,7 @@ local function server(config, debug)
       end)
       if not ok then
         printError("Request failed: " .. tostring(err))
-        pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err) }, channel)
+        pcall(rednet.send, sender, { ok = false, error = "server error: " .. tostring(err), requestId = request.requestId, command = request.command }, channel)
       end
     end
   end
@@ -1929,6 +2001,8 @@ serverAutomationTick = function(config, outputController)
       local requested, notes = automationOutputs(config, state)
       local applied = outputController and outputController(requested, true) or applyOutputs(config, requested)
       notes[#notes + 1] = "schedule paused"
+      lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes), debug = type(notes) == "table" and notes.debug or nil }
+      state.automation = lastAutomationDebug
       return state, requested, applied, notes
     end
     local schedules = loadSchedules()
@@ -1954,6 +2028,8 @@ serverAutomationTick = function(config, outputController)
   end
   local requested, notes = automationOutputs(config, state)
   local applied = outputController and outputController(requested, state.mode == "standby") or applyOutputs(config, requested)
+  lastAutomationDebug = { requested = requested, applied = applied, notes = notes, summary = automationSummary(notes), debug = type(notes) == "table" and notes.debug or nil }
+  state.automation = lastAutomationDebug
   return state, requested, applied, notes
 end
 

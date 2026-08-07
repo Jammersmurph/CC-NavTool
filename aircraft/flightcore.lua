@@ -184,7 +184,17 @@ local function controlTick()
       else
         airshipArrivalLock = nil
         local headingError = Director.headingError(state.heading, guidance.desiredHeading)
+        local headingAlignment = guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0
+        if headingAlignment and headingAlignment < -0.95 and guidance.desiredHeading then
+          local reversedHeading = { x = -guidance.desiredHeading.x, y = 0, z = -guidance.desiredHeading.z }
+          local reversedError, reversedAlignment = Director.headingError(state.heading, reversedHeading)
+          if reversedAlignment and reversedAlignment > 0.5 then
+            headingError, headingAlignment = reversedError, reversedAlignment
+            guidance.desiredHeading = reversedHeading
+          end
+        end
         local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
+          or (guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode)
         local finalHeadingReached = true
         if guidance.finalHeading then
           local finalHeadingError = Director.headingError(state.heading, guidance.finalHeading)
@@ -196,6 +206,18 @@ local function controlTick()
           headingPID:reset()
         elseif guidance.finalCapture and finalHeadingReached then
           headingPID:reset()
+        elseif headingError then
+          local navigation = config.navigation or {}
+          local yawTolerance = math.rad(math.max(0, tonumber(navigation.cruiseHeadingTolerance) or tonumber(navigation.headingTolerance) or 4))
+          if guidance.airshipMode then
+            yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber(navigation.airshipHeadingTolerance) or 15))
+          end
+          if math.abs(headingError) <= yawTolerance then
+            headingPID:reset()
+          else
+            local yaw = headingPID:update(headingError, dt)
+            splitAxis(yaw, "left", "right", commands)
+          end
         else
           local yaw = headingPID:update(headingError or 0, dt)
           splitAxis(yaw, "left", "right", commands)
@@ -211,7 +233,8 @@ local function controlTick()
         if airshipCruiseGate then
           guidance.cruiseAltitudeReady = math.max(commands.up or 0, commands.down or 0) >= 1
         end
-        if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+        local acquiringCruiseAltitude = guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady
+        if not acquiringCruiseAltitude and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
           local limit = math.max(1, math.min(15, tonumber(guidance.finalVerticalOutputMaximum) or 2))
           local upLimit = math.max(limit, math.min(15, tonumber(guidance.finalVerticalUpOutputMaximum) or 3))
           local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
@@ -221,18 +244,22 @@ local function controlTick()
           commands.down = math.min(commands.down or 0, normalizedLimit)
         end
 
-        local headingAlignment = holdYawForAltitude and 1 or (guidance.desiredHeading and state.heading and select(2, Director.headingError(state.heading, guidance.desiredHeading)) or 0)
+        headingAlignment = holdYawForAltitude and 1 or headingAlignment
         local speed = horizontalSpeedAlong(state, guidance.desiredHeading)
-        if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
+        if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode then guidance.desiredSpeed = 0 end
         local thrust = speedPID:update((guidance.desiredSpeed or 0) - speed, dt)
         local inPositioningZone = guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius
-        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.985) then
+        if not headingAlignment or headingAlignment < tonumber(fc.minimumThrustAlignment or 0.9) then
           thrust = 0
           speedPID:reset()
           if headingError and math.abs(headingError) > math.rad(0.5) and (commands.left or 0) == 0 and (commands.right or 0) == 0 then
             local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
             local yaw = (tonumber(fc.minimumYawOutput) or 1) / maximum
             splitAxis(headingError > 0 and yaw or -yaw, "left", "right", commands)
+          end
+          if not inPositioningZone and guidance.horizontalDistance and (guidance.horizontalDistance > (guidance.brakeRadius or 75)) and headingAlignment and headingAlignment > 0.5 and (guidance.desiredSpeed or 0) > 0 then
+            local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
+            thrust = math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum
           end
         end
         if guidance.shouldBrake then
@@ -243,7 +270,7 @@ local function controlTick()
           speedPID:reset()
         else
           if not inPositioningZone then thrust = math.max(0, thrust) end
-          if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.985) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
+          if headingAlignment and headingAlignment >= tonumber(fc.minimumThrustAlignment or 0.9) and guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance > guidance.finalOutputRadius and (guidance.desiredSpeed or 0) > 0 then
             local maximum = math.max(1, math.min(15, tonumber((config.safety or {}).maximumOutput) or 15))
             thrust = math.max(thrust, math.max(1, math.min(15, tonumber(fc.minimumForwardOutput) or 2)) / maximum)
           end

@@ -39,6 +39,7 @@ return {
     brakeRadius = 75,
     finalOutputRadius = 10,
     headingTolerance = 4,
+    cruiseHeadingTolerance = 25,
     airshipArrivalRadius = 6,
     airshipVerticalTolerance = 8,
     airshipHeadingTolerance = 15,
@@ -55,7 +56,8 @@ return {
     -- Normal targets switch to their requested Y within 3 horizontal blocks.
     -- Follow targets switch to player Y+10 within 10 horizontal blocks.
     cruiseAltitude = 310,
-    cruiseAltitudeMinimum = 300,
+    cruiseAltitudeTolerance = 1,
+    cruiseAltitudeMinimum = 310,
     cruiseAltitudeMaximum = 500,
     verticalTransitionRadius = 3,
     followHorizontalRadius = 10,
@@ -79,7 +81,7 @@ return {
   flightControl = {
     enabled = true,
     interval = 0.05,
-    minimumThrustAlignment = 0.985,
+    minimumThrustAlignment = 0.9,
     minimumYawOutput = 1,
     minimumForwardOutput = 2,
     hoverVelocityGain = 0.18,

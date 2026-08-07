@@ -1,4 +1,4 @@
-local VERSION = "0.5.9"
+local VERSION = "0.5.9-nightly"
 local ROOT = "/navremote"
 local CONFIG_PATH = ROOT .. "/config.lua"
 local Storage = dofile(ROOT .. "/storage.lua")
@@ -75,10 +75,12 @@ local function request(command, extra)
   end
   hostCache[key] = hostId
   local payload = extra or {}
-  payload.command, payload.key = command, connection.sharedKey or ""
+  local requestId = tostring(os.getComputerID and os.getComputerID() or "remote") .. ":" .. tostring(os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000)) .. ":" .. tostring(math.random(1000000))
+  payload.command, payload.key, payload.requestId = command, connection.sharedKey or "", requestId
   rednet.send(hostId, payload, channel)
   local sender, response = rednet.receive(channel, tonumber(connection.timeout) or 3)
   if sender ~= hostId or type(response) ~= "table" then hostCache[key] = nil; return nil, "No response" end
+  if response.requestId ~= nil and response.requestId ~= requestId then hostCache[key] = nil; return nil, "Mismatched response" end
   if not response.ok then return nil, response.error or "Rejected" end
   return response
 end
@@ -712,6 +714,18 @@ local function dashboard(data)
   else
     writeAt(3,21,"Monitor",colors.cyan)
     writeAt(15,21,status.peripheral or status.sublevel or "none")
+  end
+  if status.automation and type(status.automation.notes)=="table" then
+    writeAt(3,22,"Control",colors.cyan)
+    writeAt(15,22,tostring(status.automation.summary or status.automation.notes[1] or ""):sub(1,32),colors.yellow)
+    if type(status.automation.debug)=="table" then
+      writeAt(3,23,"Head Err",colors.cyan)
+      writeAt(15,23,string.format("%.1f align %.2f",tonumber(status.automation.debug.headingError) or 0,tonumber(status.automation.debug.alignment) or 0),colors.yellow)
+    end
+  end
+  if type(status.liveNavigation)=="table" then
+    writeAt(3,24,"Live Align",colors.cyan)
+    writeAt(15,24,string.format("%.1f align %.2f",tonumber(status.liveNavigation.headingError) or 0,tonumber(status.liveNavigation.alignment) or 0),colors.lime)
   end
   local help="R: refresh  Esc: back"
   if active then help="S: skip  P: pause  R: refresh  X: stop  Esc: back" end
