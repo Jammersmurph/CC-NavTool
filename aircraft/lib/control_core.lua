@@ -222,7 +222,17 @@ function Control:outputs(state)
     self.positionVertical:reset()
     self.pulse = {}
     local headingError, alignment = Director.headingError(state.heading, guidance.desiredHeading)
+    if alignment and alignment < -0.95 and guidance.desiredHeading then
+      local reversedHeading = { x = -guidance.desiredHeading.x, y = 0, z = -guidance.desiredHeading.z }
+      local reversedError, reversedAlignment = Director.headingError(state.heading, reversedHeading)
+      if reversedAlignment and reversedAlignment > 0.5 then
+        headingError, alignment = reversedError, reversedAlignment
+        guidance.desiredHeading = reversedHeading
+        notes[#notes + 1] = "target heading reversed for Sable frame"
+      end
+    end
     local holdYawForAltitude = guidance.altitudePhase == "final-altitude"
+      or (guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode)
     local finalHeadingReached = true
     if guidance.finalHeading then
       local finalHeadingError, finalAlignment = Director.headingError(state.heading, guidance.finalHeading)
@@ -238,6 +248,20 @@ function Control:outputs(state)
     elseif guidance.finalCapture and finalHeadingReached then
       self.heading:reset()
       commands.left, commands.right = 0, 0
+    elseif headingError then
+      local navigation = self.config.navigation or {}
+      local yawTolerance = math.rad(math.max(0, tonumber(navigation.cruiseHeadingTolerance) or tonumber(navigation.headingTolerance) or 4))
+      if guidance.airshipMode then
+        yawTolerance = math.rad(math.max(math.deg(yawTolerance), tonumber(navigation.airshipHeadingTolerance) or 15))
+      end
+      if math.abs(headingError) <= yawTolerance then
+        self.heading:reset()
+        commands.left, commands.right = 0, 0
+        alignment = 1
+        notes[#notes + 1] = "yaw within cruise tolerance"
+      else
+        self:setAxis(commands, self.heading:update(headingError, dt), "left", "right", "heading", false)
+      end
     else
       self:setAxis(commands, self.heading:update(headingError or 0, dt), "left", "right", "heading", false)
     end
@@ -259,7 +283,8 @@ function Control:outputs(state)
         notes[#notes + 1] = "airship cruise: waiting for vertical max"
       end
     end
-    if math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
+    local acquiringCruiseAltitude = guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady
+    if not acquiringCruiseAltitude and math.abs(guidance.altitudeError or 0) <= (tonumber(guidance.finalVerticalRadius) or 25) then
       local limit = tonumber(guidance.finalVerticalOutputMaximum) or 2
       local upLimit = tonumber(guidance.finalVerticalUpOutputMaximum) or math.min(15, limit + 1)
       commands.up = math.min(commands.up or 0, upLimit)
@@ -268,9 +293,9 @@ function Control:outputs(state)
     end
 
     local currentHorizontalSpeed = horizontalSpeed(state, guidance.desiredHeading)
-    if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady then guidance.desiredSpeed = 0 end
+    if guidance.altitudePhase == "horizontal-cruise" and not guidance.cruiseAltitudeReady and not guidance.airshipMode then guidance.desiredSpeed = 0 end
     local thrust = self.speed:update((guidance.desiredSpeed or 0) - currentHorizontalSpeed, dt)
-    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.985
+    local minimumAlignment = tonumber(self.fc.minimumThrustAlignment) or 0.9
     local inPositioningZone = guidance.horizontalDistance and guidance.finalOutputRadius and guidance.horizontalDistance <= guidance.finalOutputRadius
     if not alignment or alignment < minimumAlignment then
       self.speed:reset()
@@ -280,7 +305,12 @@ function Control:outputs(state)
         else commands.right = math.min(maximum(self.config, "right"), yawOutput) end
         notes[#notes + 1] = "minimum yaw while aligning"
       end
-      if currentHorizontalSpeed > 0.25 then
+      local allowCruiseCreep = not inPositioningZone and guidance.horizontalDistance and (guidance.horizontalDistance > (guidance.brakeRadius or 75)) and alignment and alignment > 0.5 and (guidance.desiredSpeed or 0) > 0
+      if allowCruiseCreep then
+        local creep = math.max(1, math.min(15, tonumber(self.fc.minimumForwardOutput) or 2)) / math.max(1, maximum(self.config, "forward"))
+        self:setAxis(commands, creep, "forward", "reverse", "speed", false)
+        notes[#notes + 1] = string.format("cruise creep align %.2f", alignment or 0)
+      elseif currentHorizontalSpeed > 0.25 then
         local brake = math.min(1, currentHorizontalSpeed / math.max(1, tonumber(self.config.navigation and self.config.navigation.cruiseSpeed) or 12))
         self:setAxis(commands, inPositioningZone and -brake or 0, "forward", "reverse", "speed", false)
         notes[#notes + 1] = string.format("align brake %.2f align %.2f", currentHorizontalSpeed, alignment or 0)
@@ -315,6 +345,7 @@ function Control:outputs(state)
     notes[#notes + 1] = string.format("phase %s cruise %s", tostring(guidance.altitudePhase or "unknown"), guidance.cruiseAltitudeReady and "ready" or "hold")
     notes[#notes + 1] = string.format("distance %.2f horizontal %.2f", guidance.distance or 0, guidance.horizontalDistance or 0)
     notes[#notes + 1] = string.format("heading %.1f align %.2f speed %.2f/%.2f", math.deg(headingError or 0), alignment or 0, currentHorizontalSpeed, guidance.desiredSpeed or 0)
+    notes.debug = { headingError = math.deg(headingError or 0), alignment = alignment, desiredHeading = guidance.desiredHeading, xError = guidance.xError, zError = guidance.zError }
     return commands, notes, true
   end
 
