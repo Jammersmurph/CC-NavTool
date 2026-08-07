@@ -265,8 +265,8 @@ local function loadConfig()
     config.navigation.finalOutputRadius = 10
     config._migrated = true
   end
-  if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 15 or tonumber(config.navigation.finalVerticalRadius) == 25) then
-    config.navigation.finalVerticalRadius = 10
+  if type(config.navigation) == "table" and (config.navigation.finalVerticalRadius == nil or tonumber(config.navigation.finalVerticalRadius) == 10 or tonumber(config.navigation.finalVerticalRadius) == 15) then
+    config.navigation.finalVerticalRadius = 25
     config._migrated = true
   end
   if type(config.navigation) == "table" and config.navigation.finalVerticalOutputMaximum == nil then
