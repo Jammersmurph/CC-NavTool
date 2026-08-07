@@ -45,7 +45,7 @@ return {
     airshipHeadingTolerance = 15,
     airshipSettleVelocity = 2.0,
     finalOutputMaximum = 2,
-    finalVerticalRadius = 10,
+    finalVerticalRadius = 25,
     finalVerticalOutputMaximum = 2,
     finalVerticalUpOutputMaximum = 3,
     stopSpeed = 0.5,
